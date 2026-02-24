@@ -60,6 +60,7 @@ Item {
             anchors.left: parent.left
             anchors.right: scrollBar.left
             anchors.bottom: tabBar.top
+            anchors.topMargin: 6
             anchors.leftMargin: 6
             anchors.rightMargin: 2
             focus: true
