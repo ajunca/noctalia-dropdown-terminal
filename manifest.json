@@ -1,0 +1,19 @@
+{
+  "id": "dropdown-terminal",
+  "name": "Dropdown Terminal",
+  "version": "1.0.0",
+  "minNoctaliaVersion": "3.6.0",
+  "author": "junky",
+  "license": "GPL-2.0-or-later",
+  "description": "Yakuake-style dropdown terminal for noctalia-shell",
+  "tags": ["Panel", "Terminal"],
+  "entryPoints": {
+    "panel": "Panel.qml"
+  },
+  "dependencies": {
+    "plugins": []
+  },
+  "metadata": {
+    "defaultSettings": {}
+  }
+}

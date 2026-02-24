@@ -1,0 +1,8 @@
+Derived from literm by Robin Burchell / Crimson AS
+https://github.com/rburchell/literm
+
+literm itself derives from fingerterm by Heikki Holstila (2011-2012).
+
+Original VT100 parser replaced with libvterm-neovim (VTermBridge).
+Qt6 QML plugin adaptation and noctalia-shell integration by Junky.
+Licensed under GPL-2.0-or-later.
