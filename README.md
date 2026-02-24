@@ -9,7 +9,9 @@ A Yakuake-style dropdown terminal plugin for [noctalia-shell](https://github.com
 - Tabbed terminal sessions (persist across panel open/close)
 - Interactive scrollbar with drag and click-to-jump
 - Built on libvterm-neovim for complete terminal emulation
-- Configurable size, font family and size via Nix options
+- Built-in settings popup (gear button) for width, height, font and size
+- Settings persist across sessions via noctalia plugin API
+- Configurable defaults via Nix options
 
 ## Keyboard shortcuts
 
@@ -28,7 +30,7 @@ A Yakuake-style dropdown terminal plugin for [noctalia-shell](https://github.com
 Add as a flake input:
 
 ```nix
-inputs.noctalia-dropdown-terminal.url = "github:youruser/noctalia-dropdown-terminal";
+inputs.noctalia-dropdown-terminal.url = "github:ajunca/noctalia-dropdown-terminal";
 ```
 
 Import the home-manager module and enable:
@@ -51,7 +53,7 @@ Add the QML import path to noctalia-shell (required for the compiled plugin):
 programs.noctalia-shell.package = pkgs.noctalia-shell.overrideAttrs (old: {
   postFixup = (old.postFixup or "") + ''
     wrapProgram $out/bin/noctalia-shell \
-      --prefix QML_IMPORT_PATH : "${inputs.noctalia-dropdown-terminal.packages.${pkgs.system}.default}"
+      --prefix QML_IMPORT_PATH : "${inputs.noctalia-dropdown-terminal.packages.${pkgs.stdenv.hostPlatform.system}.default}"
   '';
 });
 ```
