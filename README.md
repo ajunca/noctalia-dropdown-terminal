@@ -64,6 +64,12 @@ Bind a key to toggle the panel (e.g. in niri):
 "F11".action.spawn = [ "noctalia-shell" "ipc" "call" "plugin" "togglePanel" "dropdown-terminal" ];
 ```
 
+## Settings
+
+The gear button in the tab bar opens a settings popup to adjust width, height, font and size at runtime.
+
+On NixOS, the plugin directory is a read-only store path, so runtime settings reset on rebuild — update the Nix options above to make changes permanent. On non-Nix installs, settings persist automatically via noctalia's plugin API.
+
 ## License
 
 GPL-2.0-or-later. Terminal rendering derived from [literm](https://github.com/rburchell/literm) by Robin Burchell / Crimson AS (itself based on fingerterm by Heikki Holstila). VT100 parser replaced with libvterm-neovim.
