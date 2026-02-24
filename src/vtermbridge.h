@@ -97,11 +97,14 @@ public:
     void paste(const QString& text);
     void putString(QString str);
 
-    // Selection
+    // Selection (stored in absolute buffer coordinates)
     QString selectedText() const;
     void setSelection(QPoint start, QPoint end, bool selectionOngoing);
-    QRect selection() const { return m_selection; }
+    QRect selection() const;  // returns visual coords for rendering
     void clearSelection();
+
+    int visualRowToAbsolute(int visRow) const;
+    int absoluteRowToVisual(int absRow) const;
 
     TermChar zeroChar;
 

@@ -206,6 +206,7 @@ private:
     void drawTextFragment(QQuickItem* cellContentsDelegate, qreal x, qreal y, QString text, TermChar style);
     void paintFromBuffer(const TerminalBuffer& buffer, int from, int to, qreal& y, int& yDelegateIndex);
     QPointF charsToPixels(QPoint pos);
+    QPoint pixelToVisual(QPointF pos) const;
     void selectionHelper(QPointF scenePos, bool selectionOngoing);
 
     qreal fontWidth() { return iFontWidth; }
@@ -226,6 +227,7 @@ private:
     QQuickItem* fetchFreeCellContent();
 
     QPointF dragOrigin;
+    QPoint m_selectionAnchor;  // absolute coords, set once at click time
     bool m_activeClick;
 
     QFont iFont;
@@ -259,6 +261,9 @@ private:
     int m_dispatch_timer;
     QSize m_pendingSize;
     int m_resizeTimer = 0;
+    int m_autoScrollTimer = 0;
+    int m_autoScrollDirection = 0;  // -1 up, +1 down
+    QPointF m_lastDragPos;
 
     // Session management — static so sessions survive QML component destruction
     VTermBridge* m_terminal = nullptr;

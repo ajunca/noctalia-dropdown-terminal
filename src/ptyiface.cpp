@@ -130,6 +130,9 @@ PtyIFace::PtyIFace(VTermBridge* bridge, const QString& charset,
         if (slaveFd > 2)
             close(slaveFd);
         setenv("TERM", termEnv.constData(), 1);
+        const char* home = getenv("HOME");
+        if (home && chdir(home) != 0)
+            {} // best-effort, fall through to exec in inherited cwd
         execvp(argv[0], argv.data());
         _exit(127);
     }

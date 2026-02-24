@@ -456,8 +456,26 @@ void VTermBridge::setBackBufferScrollPos(int pos)
 
 // ---------- Selection ----------
 
+int VTermBridge::visualRowToAbsolute(int visRow) const
+{
+    // visRow is 1-based. Convert to absolute row in the full buffer
+    // (backBuffer + screenBuffer), also 1-based.
+    // Absolute row 1 = first line of backBuffer (or screenBuffer if no backBuffer).
+    int bbSize = m_backBuffer.size();
+    int bbFrom = bbSize - m_backBufferScrollPos;  // first visible back-buffer index (0-based)
+    return bbFrom + visRow;  // stays 1-based since bbFrom is 0-based offset
+}
+
+int VTermBridge::absoluteRowToVisual(int absRow) const
+{
+    int bbSize = m_backBuffer.size();
+    int bbFrom = bbSize - m_backBufferScrollPos;
+    return absRow - bbFrom;  // 1-based visual row
+}
+
 void VTermBridge::setSelection(QPoint start, QPoint end, bool selectionOngoing)
 {
+    // start and end must already be in absolute buffer coordinates
     m_selectionOngoing = selectionOngoing;
 
     // Normalize so start is before end
@@ -471,6 +489,33 @@ void VTermBridge::setSelection(QPoint start, QPoint end, bool selectionOngoing)
     }
 }
 
+QRect VTermBridge::selection() const
+{
+    if (m_selection.isNull())
+        return QRect();
+
+    // Convert absolute rows to visual rows for rendering
+    int topVis = absoluteRowToVisual(m_selection.top());
+    int botVis = absoluteRowToVisual(m_selection.bottom());
+
+    // Clamp to visible area (1..rows)
+    int rows = m_termSize.height();
+    if (topVis > rows || botVis < 1)
+        return QRect();  // entirely off-screen
+
+    QRect vis(QPoint(m_selection.left(), qMax(1, topVis)),
+              QPoint(m_selection.right(), qMin(rows, botVis)));
+
+    // If top is clamped, selection starts at column 1
+    if (topVis < 1)
+        vis.setLeft(1);
+    // If bottom is clamped, selection ends at last column
+    if (botVis > rows)
+        vis.setRight(m_termSize.width());
+
+    return vis;
+}
+
 void VTermBridge::clearSelection()
 {
     if (!m_selection.isNull()) {
@@ -481,34 +526,48 @@ void VTermBridge::clearSelection()
 
 QString VTermBridge::selectedText() const
 {
-    if (m_selection.isNull() || !m_vtScreen)
+    if (m_selection.isNull())
         return QString();
 
-    // Convert from 1-based selection coords to 0-based libvterm coords
-    int startRow = qMax(m_selection.top(), 1) - 1;
-    int endRow = qMax(m_selection.bottom(), 1) - 1;
-    int startCol = qMax(m_selection.left(), 1) - 1;
-    int endCol = qMax(m_selection.right(), 1); // exclusive for VTermRect
+    // m_selection is in absolute coordinates (1-based).
+    // Absolute row 1..bbSize maps to backBuffer[0..bbSize-1].
+    // Absolute row bbSize+1.. maps to screenBuffer[0..].
 
-    int cols = m_termSize.width();
+    int startRow = qMax(m_selection.top(), 1);   // 1-based absolute
+    int endRow = m_selection.bottom();
+    int startCol = qMax(m_selection.left(), 1) - 1;   // 0-based column
+    int endCol = qMax(m_selection.right(), 1) - 1;
+
+    int bbSize = m_backBuffer.size();
     QString text;
-    char buf[8192];
 
-    for (int row = startRow; row <= endRow; row++) {
-        int cs = (row == startRow) ? startCol : 0;
-        int ce = (row == endRow) ? endCol : cols;
+    for (int absRow = startRow; absRow <= endRow; absRow++) {
+        int cs = (absRow == startRow) ? startCol : 0;
+        int ce = (absRow == endRow) ? endCol : m_termSize.width() - 1;
 
-        VTermRect rect = { row, row + 1, cs, ce };
-        size_t len = vterm_screen_get_text(m_vtScreen, buf, sizeof(buf) - 1, rect);
+        // Map absolute row to the correct buffer
+        const TerminalLine* line = nullptr;
+        int idx = absRow - 1;  // 0-based
+        if (idx < bbSize) {
+            line = &m_backBuffer.at(idx);
+        } else {
+            int bufIdx = idx - bbSize;
+            if (bufIdx >= 0 && bufIdx < m_screenBuffer.size())
+                line = &m_screenBuffer.at(bufIdx);
+        }
 
-        QString line = QString::fromUtf8(buf, (int)len);
+        QString rowText;
+        if (line) {
+            for (int col = cs; col <= ce && col < line->size(); col++)
+                rowText += line->at(col).c;
+        }
 
         // Trim trailing whitespace
-        while (!line.isEmpty() && line.back() == ' ')
-            line.chop(1);
+        while (!rowText.isEmpty() && rowText.back() == ' ')
+            rowText.chop(1);
 
-        text += line;
-        if (row < endRow)
+        text += rowText;
+        if (absRow < endRow)
             text += '\n';
     }
 

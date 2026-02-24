@@ -74,6 +74,8 @@ TextRender::TextRender(QQuickItem* parent)
 
 TextRender::~TextRender()
 {
+    if (m_autoScrollTimer)
+        killTimer(m_autoScrollTimer);
     if (m_resizeTimer)
         killTimer(m_resizeTimer);
     if (m_dispatch_timer)
@@ -119,6 +121,13 @@ void TextRender::setActiveSession(int index)
 {
     if (index < 0 || index >= s_sessions.size() || index == s_activeSession)
         return;
+
+    // Stop auto-scroll from previous session
+    if (m_autoScrollTimer) {
+        killTimer(m_autoScrollTimer);
+        m_autoScrollTimer = 0;
+        m_autoScrollDirection = 0;
+    }
 
     if (m_terminal)
         disconnectTerminal(m_terminal);
@@ -694,6 +703,14 @@ void TextRender::timerEvent(QTimerEvent* event)
         killTimer(m_dispatch_timer);
         m_dispatch_timer = 0;
         polish();
+    } else if (id == m_autoScrollTimer) {
+        if (m_autoScrollDirection < 0) {
+            m_terminal->scrollBackBufferBack(1);
+        } else if (m_autoScrollDirection > 0) {
+            m_terminal->scrollBackBufferFwd(1);
+        }
+        selectionHelper(m_lastDragPos, true);
+        redraw();
     } else if (id == m_resizeTimer) {
         killTimer(m_resizeTimer);
         m_resizeTimer = 0;
@@ -710,6 +727,13 @@ void TextRender::timerEvent(QTimerEvent* event)
     }
 }
 
+QPoint TextRender::pixelToVisual(QPointF pos) const
+{
+    int yCorr = iFontDescent;
+    return QPoint(qMax(1, qRound((pos.x() + 2) / iFontWidth)),
+                  qMax(1, qRound((pos.y() + yCorr) / iFontHeight)));
+}
+
 void TextRender::mousePressEvent(QMouseEvent* event)
 {
     if (!allowGestures())
@@ -720,6 +744,9 @@ void TextRender::mousePressEvent(QMouseEvent* event)
 
     if (m_dragMode == DragSelect) {
         m_terminal->clearSelection();
+        // Store anchor in absolute coords so it survives scrolling
+        QPoint vis = pixelToVisual(dragOrigin);
+        m_selectionAnchor = QPoint(vis.x(), m_terminal->visualRowToAbsolute(vis.y()));
     }
 }
 
@@ -733,7 +760,29 @@ void TextRender::mouseMoveEvent(QMouseEvent* event)
     if (m_dragMode == DragScroll) {
         dragOrigin = scrollBackBuffer(eventPos, dragOrigin);
     } else if (m_dragMode == DragSelect) {
+        m_lastDragPos = eventPos;
         selectionHelper(eventPos, true);
+
+        // Auto-scroll when dragging past top/bottom edges
+        if (eventPos.y() < 0) {
+            if (m_autoScrollDirection != -1) {
+                if (m_autoScrollTimer)
+                    killTimer(m_autoScrollTimer);
+                m_autoScrollDirection = -1;
+                m_autoScrollTimer = startTimer(50);
+            }
+        } else if (eventPos.y() > height()) {
+            if (m_autoScrollDirection != 1) {
+                if (m_autoScrollTimer)
+                    killTimer(m_autoScrollTimer);
+                m_autoScrollDirection = 1;
+                m_autoScrollTimer = startTimer(50);
+            }
+        } else if (m_autoScrollTimer) {
+            killTimer(m_autoScrollTimer);
+            m_autoScrollTimer = 0;
+            m_autoScrollDirection = 0;
+        }
     }
 }
 
@@ -741,6 +790,13 @@ void TextRender::mouseReleaseEvent(QMouseEvent* event)
 {
     if (!allowGestures() || !m_activeClick)
         return;
+
+    // Stop auto-scroll if active
+    if (m_autoScrollTimer) {
+        killTimer(m_autoScrollTimer);
+        m_autoScrollTimer = 0;
+        m_autoScrollDirection = 0;
+    }
 
     QPointF eventPos = event->position();
     const int reqDragLength = 140;
@@ -829,15 +885,29 @@ void TextRender::wheelEvent(QWheelEvent* event)
 
 void TextRender::selectionHelper(QPointF scenePos, bool selectionOngoing)
 {
-    int yCorr = fontDescent();
+    // Anchor is already in absolute coords (set at click time).
+    // Convert only the moving end from visual → absolute.
+    QPoint visEnd = pixelToVisual(scenePos);
 
-    QPoint start(qMax(1, qRound((dragOrigin.x() + 2) / fontWidth())),
-        qMax(1, qRound((dragOrigin.y() + yCorr) / fontHeight())));
-    QPoint end(qMax(1, qRound((scenePos.x() + 2) / fontWidth())),
-        qMax(1, qRound((scenePos.y() + yCorr) / fontHeight())));
+    // Clamp visual row to visible range
+    int rows = m_terminal->rows();
+    if (visEnd.y() > rows)
+        visEnd.setY(rows);
 
-    if (start != end) {
-        m_terminal->setSelection(start, end, selectionOngoing);
+    // When past top edge, select from column 1 (full line);
+    // when past bottom edge, select to last column (full line)
+    if (scenePos.y() < 0)
+        visEnd.setX(1);
+    else if (scenePos.y() > height())
+        visEnd.setX(m_terminal->columns());
+
+    // Clamp column to valid range
+    visEnd.setX(qBound(1, visEnd.x(), m_terminal->columns()));
+
+    QPoint absEnd(visEnd.x(), m_terminal->visualRowToAbsolute(visEnd.y()));
+
+    if (m_selectionAnchor != absEnd) {
+        m_terminal->setSelection(m_selectionAnchor, absEnd, selectionOngoing);
     }
 }
 
@@ -885,6 +955,11 @@ void TextRender::setAllowGestures(bool allow)
 
     if (!allow) {
         m_activeClick = false;
+        if (m_autoScrollTimer) {
+            killTimer(m_autoScrollTimer);
+            m_autoScrollTimer = 0;
+            m_autoScrollDirection = 0;
+        }
     }
 }
 
