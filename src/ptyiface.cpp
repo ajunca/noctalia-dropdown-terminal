@@ -123,6 +123,7 @@ PtyIFace::PtyIFace(VTermBridge* bridge, const QString& charset,
         // Child
         close(masterFd);
         setsid();
+        ioctl(slaveFd, TIOCSCTTY, 0);  // set controlling terminal (needed for sudo, ssh, etc.)
         dup2(slaveFd, 0);
         dup2(slaveFd, 1);
         dup2(slaveFd, 2);
