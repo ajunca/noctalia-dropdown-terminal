@@ -516,48 +516,38 @@ void VTermBridge::clearSelection()
 
 QString VTermBridge::selectedText() const
 {
-    if (m_selection.isNull())
+    if (m_selection.isNull() || !m_vtScreen)
         return QString();
 
+    // Convert from 1-based selection coords to 0-based libvterm coords
+    int startRow = qMax(m_selection.top(), 1) - 1;
+    int endRow = qMax(m_selection.bottom(), 1) - 1;
+    int startCol = qMax(m_selection.left(), 1) - 1;
+    int endCol = qMax(m_selection.right(), 1); // exclusive for VTermRect
+
+    int cols = m_termSize.width();
     QString text;
-    int startRow = qMax(m_selection.top(), 1);
-    int endRow = qMax(m_selection.bottom(), 1);
-    int startCol = qMax(m_selection.left(), 1);
-    int endCol = qMax(m_selection.right(), 1);
+    char buf[8192];
 
     for (int row = startRow; row <= endRow; row++) {
-        int colStart = (row == startRow) ? startCol : 1;
-        int colEnd = (row == endRow) ? endCol : columns();
+        int cs = (row == startRow) ? startCol : 0;
+        int ce = (row == endRow) ? endCol : cols;
 
-        int bufRow = row - 1; // 0-indexed
-        const TerminalBuffer* buf = &m_screenBuffer;
+        VTermRect rect = { row, row + 1, cs, ce };
+        size_t len = vterm_screen_get_text(m_vtScreen, buf, sizeof(buf) - 1, rect);
 
-        QString lineText;
-        if (bufRow >= 0 && bufRow < buf->size()) {
-            const TerminalLine& line = buf->at(bufRow);
-            for (int col = colStart; col <= colEnd && col <= line.size(); col++) {
-                lineText += line.at(col - 1).c;
-            }
-        }
+        QString line = QString::fromUtf8(buf, (int)len);
 
-        // Trim trailing whitespace from each line
-        while (!lineText.isEmpty() && lineText.back() == ' ')
-            lineText.chop(1);
+        // Trim trailing whitespace
+        while (!line.isEmpty() && line.back() == ' ')
+            line.chop(1);
 
-        text += lineText;
+        text += line;
         if (row < endRow)
             text += '\n';
     }
 
-    // Strip control characters (keep \n and \t)
-    QString clean;
-    clean.reserve(text.size());
-    for (const QChar& ch : text) {
-        ushort c = ch.unicode();
-        if (c >= 0x20 || c == '\n' || c == '\t')
-            clean += ch;
-    }
-    return clean;
+    return text;
 }
 
 // ---------- Misc ----------

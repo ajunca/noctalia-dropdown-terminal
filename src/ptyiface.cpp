@@ -23,7 +23,6 @@ extern "C" {
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
-#include <spawn.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/ioctl.h>
@@ -40,7 +39,6 @@ extern "C" {
 #include <stdlib.h>
 }
 
-#include <string>
 #include <vector>
 
 #include "ptyiface.h"
@@ -94,7 +92,7 @@ PtyIFace::PtyIFace(VTermBridge* bridge, const QString& charset,
         return;
     }
 
-    // Build argv for posix_spawn
+    // Build argv
     std::vector<std::vector<char>> argStorage(execParts.length());
     std::vector<char*> argv(execParts.length() + 1);
     for (int i = 0; i < execParts.length(); i++) {
@@ -104,27 +102,7 @@ PtyIFace::PtyIFace(VTermBridge* bridge, const QString& charset,
     }
     argv[execParts.length()] = nullptr;
 
-    // Build environment with TERM set
-    extern char** environ;
-    std::vector<std::string> envStorage;
-    std::vector<char*> envp;
-    bool termSet = false;
-    for (char** e = environ; *e; ++e) {
-        if (strncmp(*e, "TERM=", 5) == 0) {
-            envStorage.push_back(std::string("TERM=") + termEnv.constData());
-            envp.push_back(const_cast<char*>(envStorage.back().c_str()));
-            termSet = true;
-        } else {
-            envp.push_back(*e);
-        }
-    }
-    if (!termSet) {
-        envStorage.push_back(std::string("TERM=") + termEnv.constData());
-        envp.push_back(const_cast<char*>(envStorage.back().c_str()));
-    }
-    envp.push_back(nullptr);
-
-    // Create PTY pair using openpty (no fork)
+    // Create PTY pair
     int masterFd, slaveFd;
     if (openpty(&masterFd, &slaveFd, NULL, NULL, NULL) == -1) {
         qWarning("openpty failed");
@@ -132,45 +110,31 @@ PtyIFace::PtyIFace(VTermBridge* bridge, const QString& charset,
         return;
     }
 
-    // Get slave device path — reopening it after setsid() sets controlling terminal
-    const char* slaveName = ptsname(masterFd);
-    if (!slaveName) {
-        qWarning("ptsname failed");
+    pid_t pid = fork();
+    if (pid == -1) {
+        qWarning("fork failed: %s", strerror(errno));
         close(masterFd);
         close(slaveFd);
         iFailed = true;
         return;
     }
-    std::string slaveNameStr(slaveName); // copy before slaveFd is closed
 
-    // Use posix_spawn to avoid fork() in NVIDIA/Wayland context
-    // File actions run AFTER setsid (POSIX_SPAWN_SETSID), so opening
-    // the slave by name makes it the controlling terminal automatically.
-    posix_spawn_file_actions_t actions;
-    posix_spawn_file_actions_init(&actions);
-    posix_spawn_file_actions_addclose(&actions, masterFd);
-    posix_spawn_file_actions_addclose(&actions, slaveFd);
-    posix_spawn_file_actions_addopen(&actions, 0, slaveNameStr.c_str(), O_RDWR, 0);
-    posix_spawn_file_actions_adddup2(&actions, 0, 1);
-    posix_spawn_file_actions_adddup2(&actions, 0, 2);
-
-    posix_spawnattr_t attr;
-    posix_spawnattr_init(&attr);
-    posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETSID);
-
-    pid_t pid;
-    int spawnRet = posix_spawnp(&pid, argv[0], &actions, &attr, argv.data(), envp.data());
-
-    posix_spawn_file_actions_destroy(&actions);
-    posix_spawnattr_destroy(&attr);
-    close(slaveFd);
-
-    if (spawnRet != 0) {
-        qWarning("posix_spawn failed: %s", strerror(spawnRet));
+    if (pid == 0) {
+        // Child
         close(masterFd);
-        iFailed = true;
-        return;
+        setsid();
+        dup2(slaveFd, 0);
+        dup2(slaveFd, 1);
+        dup2(slaveFd, 2);
+        if (slaveFd > 2)
+            close(slaveFd);
+        setenv("TERM", termEnv.constData(), 1);
+        execvp(argv[0], argv.data());
+        _exit(127);
     }
+
+    // Parent
+    close(slaveFd);
 
     iPid = pid;
     iMasterFd = masterFd;
