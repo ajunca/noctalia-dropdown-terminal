@@ -12,11 +12,8 @@
   {
     homeManagerModules.default = import ./module.nix;
 
-    packages = forAllSystems (system:
-      let pkgs = nixpkgs.legacyPackages.${system};
-      in {
-        default = pkgs.callPackage ./default.nix {};
-      }
-    );
+    packages = forAllSystems (system: {
+      default = (import nixpkgs { inherit system; }).callPackage ./default.nix {};
+    });
   };
 }

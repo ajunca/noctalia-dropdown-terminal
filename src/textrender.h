@@ -53,9 +53,7 @@ public:
     explicit TextRender(QQuickItem* parent = 0);
     virtual ~TextRender();
 
-    Q_INVOKABLE const QStringList printableLinesFromCursor(int lines);
     Q_INVOKABLE void putString(QString str);
-    Q_INVOKABLE const QStringList grabURLsFromBuffer();
 
     bool canPaste() const;
     Q_INVOKABLE void copy();
@@ -180,9 +178,6 @@ signals:
 
 public slots:
     void redraw();
-    void mousePress(float eventX, float eventY);
-    void mouseMove(float eventX, float eventY);
-    void mouseRelease(float eventX, float eventY);
 
 protected:
     void updatePolish() override;
@@ -206,15 +201,6 @@ private:
 
     void connectTerminal(VTermBridge* t);
     void disconnectTerminal(VTermBridge* t);
-
-    enum PanGesture
-    {
-        PanNone,
-        PanLeft,
-        PanRight,
-        PanUp,
-        PanDown
-    };
 
     void drawBgFragment(QQuickItem* cellContentsDelegate, qreal x, qreal y, int width, TermChar style);
     void drawTextFragment(QQuickItem* cellContentsDelegate, qreal x, qreal y, QString text, TermChar style);

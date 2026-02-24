@@ -90,7 +90,6 @@ void TextRender::connectTerminal(VTermBridge* t)
     connect(t, SIGNAL(hangupReceived()), this, SIGNAL(hangupReceived()));
     connect(t, SIGNAL(displayBufferChanged()), this, SLOT(redraw()));
     connect(t, SIGNAL(displayBufferChanged()), this, SIGNAL(displayBufferChanged()));
-    connect(t, SIGNAL(cursorPosChanged(QPoint)), this, SLOT(redraw()));
     connect(t, SIGNAL(termSizeChanged(int, int)), this, SLOT(redraw()));
     connect(t, SIGNAL(termSizeChanged(int, int)), this, SIGNAL(terminalSizeChanged()));
     connect(t, SIGNAL(selectionChanged()), this, SLOT(redraw()));
@@ -223,21 +222,9 @@ void TextRender::setScrollPosition(int pos)
     redraw();
 }
 
-// ---------- Terminal forwarding ----------
-
-const QStringList TextRender::printableLinesFromCursor(int lines)
-{
-    return m_terminal->printableLinesFromCursor(lines);
-}
-
 void TextRender::putString(QString str)
 {
     m_terminal->putString(str);
-}
-
-const QStringList TextRender::grabURLsFromBuffer()
-{
-    return m_terminal->grabURLsFromBuffer();
 }
 
 void TextRender::componentComplete()
@@ -725,19 +712,11 @@ void TextRender::timerEvent(QTimerEvent* event)
 
 void TextRender::mousePressEvent(QMouseEvent* event)
 {
-    qreal eventX = event->position().x();
-    qreal eventY = event->position().y();
-    mousePress(eventX, eventY);
-}
-
-void TextRender::mousePress(float eventX, float eventY)
-{
     if (!allowGestures())
         return;
 
     m_activeClick = true;
-
-    dragOrigin = QPointF(eventX, eventY);
+    dragOrigin = event->position();
 
     if (m_dragMode == DragSelect) {
         m_terminal->clearSelection();
@@ -746,17 +725,10 @@ void TextRender::mousePress(float eventX, float eventY)
 
 void TextRender::mouseMoveEvent(QMouseEvent* event)
 {
-    qreal eventX = event->position().x();
-    qreal eventY = event->position().y();
-    mouseMove(eventX, eventY);
-}
-
-void TextRender::mouseMove(float eventX, float eventY)
-{
     if (!allowGestures() || !m_activeClick)
         return;
 
-    QPointF eventPos(eventX, eventY);
+    QPointF eventPos = event->position();
 
     if (m_dragMode == DragScroll) {
         dragOrigin = scrollBackBuffer(eventPos, dragOrigin);
@@ -767,17 +739,10 @@ void TextRender::mouseMove(float eventX, float eventY)
 
 void TextRender::mouseReleaseEvent(QMouseEvent* event)
 {
-    qreal eventX = event->position().x();
-    qreal eventY = event->position().y();
-    mouseRelease(eventX, eventY);
-}
-
-void TextRender::mouseRelease(float eventX, float eventY)
-{
     if (!allowGestures() || !m_activeClick)
         return;
 
-    QPointF eventPos(eventX, eventY);
+    QPointF eventPos = event->position();
     const int reqDragLength = 140;
 
     if (m_dragMode == DragGestures) {

@@ -62,7 +62,6 @@ private:
     Q_DISABLE_COPY(PtyIFace)
 
     VTermBridge* m_bridge;
-    int iPid;
     int iMasterFd;
     bool iFailed;
     bool m_childProcessQuit;

@@ -369,44 +369,9 @@ void VTermBridge::keyPress(int key, int modifiers, const QString& text)
     case Qt::Key_PageDown:
         vtKey = VTERM_KEY_PAGEDOWN;
         break;
-    case Qt::Key_F1:
-        vtKey = static_cast<VTermKey>(VTERM_KEY_FUNCTION(1));
-        break;
-    case Qt::Key_F2:
-        vtKey = static_cast<VTermKey>(VTERM_KEY_FUNCTION(2));
-        break;
-    case Qt::Key_F3:
-        vtKey = static_cast<VTermKey>(VTERM_KEY_FUNCTION(3));
-        break;
-    case Qt::Key_F4:
-        vtKey = static_cast<VTermKey>(VTERM_KEY_FUNCTION(4));
-        break;
-    case Qt::Key_F5:
-        vtKey = static_cast<VTermKey>(VTERM_KEY_FUNCTION(5));
-        break;
-    case Qt::Key_F6:
-        vtKey = static_cast<VTermKey>(VTERM_KEY_FUNCTION(6));
-        break;
-    case Qt::Key_F7:
-        vtKey = static_cast<VTermKey>(VTERM_KEY_FUNCTION(7));
-        break;
-    case Qt::Key_F8:
-        vtKey = static_cast<VTermKey>(VTERM_KEY_FUNCTION(8));
-        break;
-    case Qt::Key_F9:
-        vtKey = static_cast<VTermKey>(VTERM_KEY_FUNCTION(9));
-        break;
-    case Qt::Key_F10:
-        vtKey = static_cast<VTermKey>(VTERM_KEY_FUNCTION(10));
-        break;
-    case Qt::Key_F11:
-        vtKey = static_cast<VTermKey>(VTERM_KEY_FUNCTION(11));
-        break;
-    case Qt::Key_F12:
-        vtKey = static_cast<VTermKey>(VTERM_KEY_FUNCTION(12));
-        break;
     default:
-        vtKey = VTERM_KEY_NONE;
+        if (key >= Qt::Key_F1 && key <= Qt::Key_F12)
+            vtKey = static_cast<VTermKey>(VTERM_KEY_FUNCTION(key - Qt::Key_F1 + 1));
         break;
     }
 
@@ -550,15 +515,3 @@ QString VTermBridge::selectedText() const
     return text;
 }
 
-// ---------- Misc ----------
-
-const QStringList VTermBridge::printableLinesFromCursor(int lines)
-{
-    Q_UNUSED(lines);
-    return QStringList();
-}
-
-const QStringList VTermBridge::grabURLsFromBuffer()
-{
-    return QStringList();
-}

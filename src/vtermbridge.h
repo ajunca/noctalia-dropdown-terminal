@@ -46,30 +46,8 @@ struct TermChar {
     bool operator!=(const TermChar& other) const { return !(*this == other); }
 };
 
-class TerminalLine {
-public:
-    void append(const TermChar& tc) { m_contents.append(tc); }
-    int size() const { return m_contents.size(); }
-    const TermChar& at(int i) const { return m_contents.at(i); }
-    TermChar& operator[](int i) { return m_contents[i]; }
-    void clear() { m_contents.clear(); }
-
-private:
-    QVector<TermChar> m_contents;
-};
-
-class TerminalBuffer {
-public:
-    void append(const TerminalLine& line) { m_buffer.append(line); }
-    int size() const { return m_buffer.size(); }
-    const TerminalLine& at(int i) const { return m_buffer.at(i); }
-    TerminalLine& operator[](int i) { return m_buffer[i]; }
-    void removeAt(int i) { m_buffer.removeAt(i); }
-    void clear() { m_buffer.clear(); }
-
-private:
-    QVector<TerminalLine> m_buffer;
-};
+using TerminalLine = QVector<TermChar>;
+using TerminalBuffer = QVector<TerminalLine>;
 
 // ---------- VTermBridge ----------
 
@@ -125,15 +103,10 @@ public:
     QRect selection() const { return m_selection; }
     void clearSelection();
 
-    // Misc
-    const QStringList printableLinesFromCursor(int lines);
-    const QStringList grabURLsFromBuffer();
-
     TermChar zeroChar;
 
 signals:
     void displayBufferChanged();
-    void cursorPosChanged(QPoint newPos);
     void termSizeChanged(int rows, int columns);
     void selectionChanged();
     void scrollBackBufferAdjusted(bool reset);

@@ -136,9 +136,8 @@ PtyIFace::PtyIFace(VTermBridge* bridge, const QString& charset,
     // Parent
     close(slaveFd);
 
-    iPid = pid;
+    m_childProcessPid = pid;
     iMasterFd = masterFd;
-    m_childProcessPid = iPid;
 
     if (!m_bridge || m_childProcessQuit) {
         iFailed = true;
@@ -169,9 +168,9 @@ PtyIFace::~PtyIFace()
         iMasterFd = -1;
     }
 
-    if (!m_childProcessQuit && iPid > 0) {
-        kill(iPid, SIGHUP);
-        kill(iPid, SIGTERM);
+    if (!m_childProcessQuit && m_childProcessPid > 0) {
+        kill(m_childProcessPid, SIGHUP);
+        kill(m_childProcessPid, SIGTERM);
     }
 }
 
