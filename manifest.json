@@ -1,19 +1,26 @@
 {
   "id": "dropdown-terminal",
   "name": "Dropdown Terminal",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "minNoctaliaVersion": "3.6.0",
   "author": "junky",
   "license": "GPL-2.0-or-later",
-  "description": "Yakuake-style dropdown terminal for noctalia-shell",
-  "tags": ["Panel", "Terminal"],
+  "repository": "https://github.com/ajunca/noctalia-dropdown-terminal",
+  "description": "Yakuake-style dropdown terminal with tabs, scrollback, and libvterm",
+  "tags": ["Panel", "Productivity"],
   "entryPoints": {
-    "panel": "Panel.qml"
+    "panel": "Panel.qml",
+    "settings": "Settings.qml"
   },
   "dependencies": {
     "plugins": []
   },
   "metadata": {
-    "defaultSettings": {}
+    "defaultSettings": {
+      "widthPercent": 0.6,
+      "heightPercent": 0.3,
+      "fontFamily": "Hack",
+      "fontSize": 10.5
+    }
   }
 }

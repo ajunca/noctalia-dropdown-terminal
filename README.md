@@ -9,23 +9,18 @@ A Yakuake-style dropdown terminal plugin for [noctalia-shell](https://github.com
 - Tabbed terminal sessions (persist across panel open/close)
 - Interactive scrollbar with drag and click-to-jump
 - Built on libvterm-neovim for complete terminal emulation
-- Built-in settings popup (gear button) for width, height, font and size
+- Configurable width, height, font and size via noctalia Settings panel
 - Settings persist across sessions via noctalia plugin API
-- Configurable defaults via Nix options
 
-## Keyboard shortcuts
+## Requirements
 
-| Shortcut | Action |
-|---|---|
-| Ctrl+Shift+C | Copy |
-| Ctrl+Shift+V | Paste |
-| Shift+Insert | Paste |
-| Ctrl+Shift+T / N | New tab |
-| Ctrl+Shift+W | Close tab |
-| Ctrl+Tab | Next tab |
-| Ctrl+Shift+Tab | Previous tab |
+This plugin includes a compiled C++ QML module (`dropterm`) that provides the terminal emulator. You need to build it before use.
 
-## Installation (NixOS + home-manager)
+**Dependencies**: Qt 6 (qtbase, qtdeclarative), libvterm-neovim, CMake, pkg-config
+
+## Installation
+
+### NixOS (flake + home-manager)
 
 Add as a flake input:
 
@@ -38,16 +33,10 @@ Import the home-manager module and enable:
 ```nix
 imports = [ inputs.noctalia-dropdown-terminal.homeManagerModules.default ];
 
-programs.dropdown-terminal = {
-  enable = true;
-  widthPercent = "0.6";    # 60% of screen width
-  heightPercent = "0.3";   # 30% of screen height
-  fontFamily = "Hack";
-  fontSize = "10.5";
-};
+programs.dropdown-terminal.enable = true;
 ```
 
-Add the QML import path to noctalia-shell (required for the compiled plugin):
+Add the QML import path to noctalia-shell (required for the compiled module):
 
 ```nix
 programs.noctalia-shell.package = pkgs.noctalia-shell.overrideAttrs (old: {
@@ -58,17 +47,60 @@ programs.noctalia-shell.package = pkgs.noctalia-shell.overrideAttrs (old: {
 });
 ```
 
+### Manual (non-Nix)
+
+Build the compiled module:
+
+```bash
+cd src
+cmake -B build -DCMAKE_INSTALL_PREFIX=../install
+cmake --build build
+cmake --install build
+```
+
+Copy files to the noctalia plugins directory:
+
+```bash
+PLUGIN_DIR=~/.config/noctalia/plugins/dropdown-terminal
+mkdir -p "$PLUGIN_DIR/dropterm"
+cp install/lib/qt-6/qml/dropterm/libdropterm.so "$PLUGIN_DIR/dropterm/"
+cp install/lib/qt-6/qml/dropterm/qmldir "$PLUGIN_DIR/dropterm/"
+cp Panel.qml Settings.qml manifest.json "$PLUGIN_DIR/"
+```
+
+Launch noctalia-shell with the plugin directory on the QML import path:
+
+```bash
+QML_IMPORT_PATH=~/.config/noctalia/plugins/dropdown-terminal:$QML_IMPORT_PATH noctalia-shell
+```
+
+## Usage
+
 Bind a key to toggle the panel (e.g. in niri):
 
 ```nix
-"F11".action.spawn = [ "noctalia-shell" "ipc" "call" "plugin" "togglePanel" "dropdown-terminal" ];
+"F12".action.spawn = [ "noctalia-shell" "ipc" "call" "plugin" "togglePanel" "dropdown-terminal" ];
 ```
 
-## Settings
+Or from the command line:
 
-The gear button in the tab bar opens a settings popup to adjust width, height, font and size at runtime.
+```bash
+noctalia-shell ipc call plugin togglePanel dropdown-terminal
+```
 
-On NixOS, the plugin directory is a read-only store path, so runtime settings reset on rebuild — update the Nix options above to make changes permanent. On non-Nix installs, settings persist automatically via noctalia's plugin API.
+Configure width, height, font and size from the noctalia Settings panel.
+
+## Keyboard shortcuts
+
+| Shortcut | Action |
+|---|---|
+| Ctrl+Shift+C | Copy |
+| Ctrl+Shift+V | Paste |
+| Shift+Insert | Paste |
+| Ctrl+Shift+T / N | New tab |
+| Ctrl+Shift+W | Close tab |
+| Ctrl+Tab | Next tab |
+| Ctrl+Shift+Tab | Previous tab |
 
 ## License
 

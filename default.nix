@@ -1,13 +1,8 @@
-{ lib, stdenv, cmake, pkg-config, qt6, libvterm-neovim
-, widthPercent ? "0.6"
-, heightPercent ? "0.3"
-, fontFamily ? "Hack"
-, fontSize ? "10.5"
-}:
+{ lib, stdenv, cmake, pkg-config, qt6, libvterm-neovim }:
 
 stdenv.mkDerivation {
   pname = "noctalia-dropdown-terminal";
-  version = "1.0.0";
+  version = "1.1.0";
 
   src = ./src;
 
@@ -27,11 +22,8 @@ stdenv.mkDerivation {
 
   postInstall = ''
     mkdir -p $out
-    substitute ${./Panel.qml} $out/Panel.qml \
-      --replace-fail "@WIDTH_PERCENT@" "${widthPercent}" \
-      --replace-fail "@HEIGHT_PERCENT@" "${heightPercent}" \
-      --replace-fail "@FONT_FAMILY@" "${fontFamily}" \
-      --replace-fail "@FONT_SIZE@" "${fontSize}"
+    cp ${./Panel.qml} $out/Panel.qml
+    cp ${./Settings.qml} $out/Settings.qml
     cp ${./manifest.json} $out/manifest.json
     mv $out/lib/qt-6/qml/dropterm $out/dropterm
     rm -rf $out/lib
