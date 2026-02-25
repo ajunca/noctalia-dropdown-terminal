@@ -39,57 +39,11 @@ Item {
             anchors.leftMargin: 6
             anchors.rightMargin: 2
             focus: true
-            property int cutAfter: height
-            dragMode: TextRender.DragSelect
 
             font.family: root.termFontFamily
             font.pointSize: root.termFontSize
 
-            contentItem: Item {
-                anchors.fill: parent
-            }
-
-            cellDelegate: Rectangle {
-                color: "transparent"
-            }
-
-            cellContentsDelegate: Text {
-                property bool blinking: false
-                textFormat: Text.PlainText
-                opacity: blinking ? 0.5 : 1.0
-            }
-
-            cursorDelegate: Rectangle {
-                id: cursor
-                opacity: 0.7
-                SequentialAnimation {
-                    running: true
-                    loops: Animation.Infinite
-                    NumberAnimation {
-                        target: cursor
-                        property: "opacity"
-                        to: 1.0
-                        duration: 400
-                    }
-                    PauseAnimation { duration: 400 }
-                    NumberAnimation {
-                        target: cursor
-                        property: "opacity"
-                        to: 0.3
-                        duration: 400
-                    }
-                    PauseAnimation { duration: 200 }
-                }
-            }
-
-            selectionDelegate: Rectangle {
-                color: "#88c0d0"
-                opacity: 0.4
-            }
-
-            Component.onCompleted: {
-                textrender.forceActiveFocus();
-            }
+            Component.onCompleted: textrender.forceActiveFocus()
         }
 
         // Scrollbar

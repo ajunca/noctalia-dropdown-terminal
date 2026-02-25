@@ -1,5 +1,7 @@
 /*
     Qt6 QML plugin registration for dropdown terminal widget.
+
+    Copyright 2026 ajunca — MIT License
 */
 
 #include <QtQml/QQmlExtensionPlugin>

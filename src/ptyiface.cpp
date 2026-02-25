@@ -1,217 +1,210 @@
 /*
-    Copyright (C) 2017 Robin Burchell <robin+git@viroteck.net>
-    Copyright 2011-2012 Heikki Holstila <heikki.holstila@gmail.com>
+    PtyIFace — PTY master-side interface for spawning and communicating
+    with a child shell process.
 
-    This work is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 2 of the License, or
-    (at your option) any later version.
-
-    This work is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with this work.  If not, see <http://www.gnu.org/licenses/>.
+    Copyright 2026 ajunca — MIT License
 */
 
+#include "ptyiface.h"
+#include "vtermbridge.h"
+
 #include <QDebug>
-#include <QTimer>
+#include <QSocketNotifier>
 
 extern "C" {
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
-#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
-#include <sys/types.h>
 #include <sys/wait.h>
 #include <termios.h>
 #include <unistd.h>
+#include <pwd.h>
 #if defined(Q_OS_LINUX)
 #include <pty.h>
-#elif defined(Q_OS_MAC)
+#elif defined(Q_OS_MACOS)
 #include <util.h>
 #endif
-#include <pwd.h>
-#include <stdlib.h>
 }
 
-#include <vector>
-
-#include "ptyiface.h"
-#include "vtermbridge.h"
-
-void PtyIFace::checkChildStatus()
-{
-    if (m_childProcessQuit || m_childProcessPid <= 0)
-        return;
-
-    int status = 0;
-    int ret = waitpid(m_childProcessPid, &status, WNOHANG);
-    if (ret == m_childProcessPid) {
-        m_childProcessQuit = true;
-        m_childProcessPid = 0;
-
-        if (iReadNotifier)
-            iReadNotifier->setEnabled(false);
-
-        emit hangupReceived();
-    }
-}
-
-PtyIFace::PtyIFace(VTermBridge* bridge, const QString& charset,
-    const QByteArray& termEnv, const QString& commandOverride,
+PtyIFace::PtyIFace(VTermBridge* bridge, const QString& /*charset*/,
+    const QByteArray& termEnv, const QString& command,
     QObject* parent)
     : QObject(parent)
     , m_bridge(bridge)
-    , iFailed(false)
-    , m_childProcessQuit(false)
-    , m_childProcessPid(0)
-    , iReadNotifier(0)
 {
-    Q_UNUSED(charset); // libvterm handles UTF-8 internally
-
-    m_childCheckTimer = new QTimer(this);
-    m_childCheckTimer->setInterval(500);
-    connect(m_childCheckTimer, &QTimer::timeout, this, &PtyIFace::checkChildStatus);
-
-    // Build the command to exec
-    QString execCmd = commandOverride;
-    if (execCmd.isEmpty()) {
-        passwd* pwdstruct = getpwuid(getuid());
-        execCmd = QString(pwdstruct->pw_shell);
-        execCmd.append(" --login");
-    }
-
-    QStringList execParts = execCmd.split(' ', Qt::SkipEmptyParts);
-    if (execParts.length() == 0) {
-        iFailed = true;
-        return;
-    }
-
-    // Build argv
-    std::vector<std::vector<char>> argStorage(execParts.length());
-    std::vector<char*> argv(execParts.length() + 1);
-    for (int i = 0; i < execParts.length(); i++) {
-        QByteArray ba = execParts.at(i).toLatin1();
-        argStorage[i].assign(ba.data(), ba.data() + ba.length() + 1);
-        argv[i] = argStorage[i].data();
-    }
-    argv[execParts.length()] = nullptr;
-
-    // Create PTY pair
-    int masterFd, slaveFd;
-    if (openpty(&masterFd, &slaveFd, NULL, NULL, NULL) == -1) {
-        qWarning("openpty failed");
-        iFailed = true;
-        return;
-    }
-
-    pid_t pid = fork();
-    if (pid == -1) {
-        qWarning("fork failed: %s", strerror(errno));
-        close(masterFd);
-        close(slaveFd);
-        iFailed = true;
-        return;
-    }
-
-    if (pid == 0) {
-        // Child
-        close(masterFd);
-        setsid();
-        ioctl(slaveFd, TIOCSCTTY, 0);  // set controlling terminal (needed for sudo, ssh, etc.)
-        dup2(slaveFd, 0);
-        dup2(slaveFd, 1);
-        dup2(slaveFd, 2);
-        if (slaveFd > 2)
-            close(slaveFd);
-        setenv("TERM", termEnv.constData(), 1);
-        const char* home = getenv("HOME");
-        if (home && chdir(home) != 0)
-            {} // best-effort, fall through to exec in inherited cwd
-        execvp(argv[0], argv.data());
-        _exit(127);
-    }
-
-    // Parent
-    close(slaveFd);
-
-    m_childProcessPid = pid;
-    iMasterFd = masterFd;
-
-    if (!m_bridge || m_childProcessQuit) {
-        iFailed = true;
-        qWarning("PtyIFace: null bridge pointer");
-        return;
-    }
-
-    resize(m_bridge->rows(), m_bridge->columns());
-
-    iReadNotifier = new QSocketNotifier(iMasterFd, QSocketNotifier::Read, this);
-    connect(iReadNotifier, &QSocketNotifier::activated, this, &PtyIFace::readActivated);
-
-    fcntl(iMasterFd, F_SETFL, O_NONBLOCK);
-
-    m_childCheckTimer->start();
+    spawnShell(termEnv, command);
 }
 
 PtyIFace::~PtyIFace()
 {
-    if (iReadNotifier) {
-        iReadNotifier->setEnabled(false);
-        delete iReadNotifier;
-        iReadNotifier = nullptr;
-    }
-
-    if (iMasterFd >= 0) {
-        close(iMasterFd);
-        iMasterFd = -1;
-    }
-
-    if (!m_childProcessQuit && m_childProcessPid > 0) {
-        kill(m_childProcessPid, SIGHUP);
-        kill(m_childProcessPid, SIGTERM);
-    }
+    cleanup();
 }
 
-void PtyIFace::readActivated()
+void PtyIFace::spawnShell(const QByteArray& termEnv, const QString& command)
 {
-    if (m_childProcessQuit)
+    // Determine what to execute
+    QString shell = command;
+    if (shell.isEmpty()) {
+        struct passwd* pw = getpwuid(getuid());
+        if (!pw || !pw->pw_shell) {
+            qWarning("PtyIFace: cannot determine user shell");
+            m_failed = true;
+            return;
+        }
+        shell = QString::fromLocal8Bit(pw->pw_shell) + " --login";
+    }
+
+    QStringList parts = shell.split(' ', Qt::SkipEmptyParts);
+    if (parts.isEmpty()) {
+        m_failed = true;
+        return;
+    }
+
+    // Build null-terminated argv
+    QVector<QByteArray> argBytes;
+    argBytes.reserve(parts.size());
+    for (const QString& p : parts)
+        argBytes.append(p.toLocal8Bit());
+
+    QVector<char*> argv(argBytes.size() + 1);
+    for (int i = 0; i < argBytes.size(); ++i)
+        argv[i] = argBytes[i].data();
+    argv[argBytes.size()] = nullptr;
+
+    // Allocate PTY pair
+    int master = -1, slave = -1;
+    if (openpty(&master, &slave, nullptr, nullptr, nullptr) < 0) {
+        qWarning("PtyIFace: openpty: %s", strerror(errno));
+        m_failed = true;
+        return;
+    }
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        qWarning("PtyIFace: fork: %s", strerror(errno));
+        close(master);
+        close(slave);
+        m_failed = true;
+        return;
+    }
+
+    if (pid == 0) {
+        // ── Child process ──
+        close(master);
+
+        // New session + controlling terminal
+        setsid();
+        ioctl(slave, TIOCSCTTY, 0);
+
+        // Redirect stdio to slave PTY
+        dup2(slave, STDIN_FILENO);
+        dup2(slave, STDOUT_FILENO);
+        dup2(slave, STDERR_FILENO);
+        if (slave > STDERR_FILENO)
+            close(slave);
+
+        // Environment
+        setenv("TERM", termEnv.isEmpty() ? "xterm-256color" : termEnv.constData(), 1);
+
+        // Start in home directory
+        const char* home = getenv("HOME");
+        if (home)
+            (void)chdir(home);
+
+        execvp(argv[0], argv.data());
+        _exit(127);
+    }
+
+    // ── Parent process ──
+    close(slave);
+    m_masterFd = master;
+    m_childPid = pid;
+
+    // Non-blocking reads
+    fcntl(m_masterFd, F_SETFL, fcntl(m_masterFd, F_GETFL) | O_NONBLOCK);
+
+    // Set initial terminal size
+    if (m_bridge)
+        resize(m_bridge->rows(), m_bridge->columns());
+
+    // Watch for data from the child
+    m_readNotifier = new QSocketNotifier(m_masterFd, QSocketNotifier::Read, this);
+    connect(m_readNotifier, &QSocketNotifier::activated, this, &PtyIFace::onReadReady);
+}
+
+void PtyIFace::onReadReady()
+{
+    if (m_childExited)
         return;
 
-    char buf[4096];
-    int ret = read(iMasterFd, buf, sizeof(buf));
-    if (ret > 0) {
-        m_pendingRawData.append(buf, ret);
+    char buf[8192];
+    ssize_t n = read(m_masterFd, buf, sizeof(buf));
+
+    if (n > 0) {
+        m_readBuf.append(buf, static_cast<int>(n));
         emit dataAvailable();
-    } else if (ret == 0 || (ret == -1 && errno != EAGAIN && errno != EINTR)) {
-        if (iReadNotifier)
-            iReadNotifier->setEnabled(false);
-        checkChildStatus();
+    } else if (n == 0 || (n < 0 && errno != EAGAIN && errno != EINTR)) {
+        // EOF or real error — child is gone
+        if (m_readNotifier)
+            m_readNotifier->setEnabled(false);
+
+        // Reap child
+        if (m_childPid > 0) {
+            int status = 0;
+            waitpid(m_childPid, &status, 0);
+            m_childPid = -1;
+        }
+        m_childExited = true;
+        emit hangupReceived();
     }
-}
-
-void PtyIFace::resize(int rows, int columns)
-{
-    if (m_childProcessQuit)
-        return;
-
-    winsize winp;
-    winp.ws_col = columns;
-    winp.ws_row = rows;
-    ioctl(iMasterFd, TIOCSWINSZ, &winp);
 }
 
 void PtyIFace::writeRawTerm(const QByteArray& data)
 {
-    if (m_childProcessQuit)
+    if (m_masterFd < 0 || m_childExited || data.isEmpty())
         return;
 
-    int ret = write(iMasterFd, data.constData(), data.size());
-    if (ret != data.size())
-        qDebug() << "write error!";
+    ssize_t written = write(m_masterFd, data.constData(), data.size());
+    if (written < 0 && errno != EAGAIN)
+        qWarning("PtyIFace: write: %s", strerror(errno));
+}
+
+void PtyIFace::resize(int rows, int columns)
+{
+    if (m_masterFd < 0 || m_childExited)
+        return;
+
+    struct winsize ws = {};
+    ws.ws_row = static_cast<unsigned short>(rows);
+    ws.ws_col = static_cast<unsigned short>(columns);
+    ioctl(m_masterFd, TIOCSWINSZ, &ws);
+}
+
+void PtyIFace::cleanup()
+{
+    if (m_readNotifier) {
+        m_readNotifier->setEnabled(false);
+        delete m_readNotifier;
+        m_readNotifier = nullptr;
+    }
+
+    if (m_masterFd >= 0) {
+        close(m_masterFd);
+        m_masterFd = -1;
+    }
+
+    // Signal child to exit if still running
+    if (m_childPid > 0 && !m_childExited) {
+        kill(m_childPid, SIGHUP);
+        // Brief wait, then force
+        int status = 0;
+        if (waitpid(m_childPid, &status, WNOHANG) == 0) {
+            kill(m_childPid, SIGTERM);
+            waitpid(m_childPid, &status, 0);
+        }
+        m_childPid = -1;
+    }
 }

@@ -1,19 +1,8 @@
 /*
-    Copyright (C) 2017 Robin Burchell <robin+git@viroteck.net>
-    Copyright 2011-2012 Heikki Holstila <heikki.holstila@gmail.com>
+    PtyIFace — PTY master-side interface for spawning and communicating
+    with a child shell process.
 
-    This work is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 2 of the License, or
-    (at your option) any later version.
-
-    This work is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with this work.  If not, see <http://www.gnu.org/licenses/>.
+    Copyright 2026 ajunca — MIT License
 */
 
 #ifndef PTYIFACE_H
@@ -22,55 +11,51 @@
 #include <QByteArray>
 #include <QObject>
 #include <QSize>
-#include <QSocketNotifier>
-#include <QTimer>
 
+class QSocketNotifier;
 class VTermBridge;
 
 class PtyIFace : public QObject {
     Q_OBJECT
 public:
     explicit PtyIFace(VTermBridge* bridge, const QString& charset,
-        const QByteArray& terminalEnv, const QString& commandOverride,
-        QObject* parent);
-    virtual ~PtyIFace();
+        const QByteArray& termEnv, const QString& command,
+        QObject* parent = nullptr);
+    ~PtyIFace() override;
 
-    bool failed() { return iFailed; }
+    bool failed() const { return m_failed; }
 
-    // Raw byte interface (for libvterm)
     QByteArray takeRawData()
     {
-        QByteArray tmp;
-        tmp.swap(m_pendingRawData);
-        return tmp;
+        QByteArray out;
+        out.swap(m_readBuf);
+        return out;
     }
 
     void writeRawTerm(const QByteArray& data);
-
-    // Resize PTY
     void resize(int rows, int columns);
-
-private slots:
-    void readActivated();
-    void checkChildStatus();
 
 signals:
     void dataAvailable();
     void hangupReceived();
 
+private slots:
+    void onReadReady();
+
 private:
     Q_DISABLE_COPY(PtyIFace)
 
-    VTermBridge* m_bridge;
-    int iMasterFd;
-    bool iFailed;
-    bool m_childProcessQuit;
-    int m_childProcessPid;
+    void spawnShell(const QByteArray& termEnv, const QString& command);
+    void cleanup();
 
-    QSocketNotifier* iReadNotifier;
-    QTimer* m_childCheckTimer;
+    VTermBridge* m_bridge = nullptr;
+    int m_masterFd = -1;
+    pid_t m_childPid = -1;
+    bool m_failed = false;
+    bool m_childExited = false;
 
-    QByteArray m_pendingRawData;
+    QSocketNotifier* m_readNotifier = nullptr;
+    QByteArray m_readBuf;
 };
 
 #endif // PTYIFACE_H

@@ -1,9 +1,8 @@
 /*
-    VTermBridge — libvterm-neovim wrapper for literm Qt6 QML plugin.
-    Replaces the old Terminal + Parser classes with a complete terminal
+    VTermBridge — libvterm-neovim wrapper providing a complete terminal
     emulator backed by libvterm (the same library used by neovim).
 
-    Copyright 2024 — GPL v2+
+    Copyright 2026 ajunca — MIT License
 */
 
 #ifndef VTERMBRIDGE_H
