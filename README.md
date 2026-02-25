@@ -104,4 +104,4 @@ Configure width, height, font and size from the noctalia Settings panel.
 
 ## License
 
-GPL-2.0-or-later. Terminal rendering derived from [literm](https://github.com/rburchell/literm) by Robin Burchell / Crimson AS (itself based on fingerterm by Heikki Holstila). VT100 parser replaced with libvterm-neovim.
+MIT
