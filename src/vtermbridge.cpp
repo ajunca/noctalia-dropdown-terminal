@@ -13,10 +13,11 @@
 VTermBridge::VTermBridge(QObject* parent)
     : QObject(parent)
 {
-    zeroChar.c = ' ';
+    zeroChar.c = QStringLiteral(" ");
     zeroChar.fgColor = qRgb(235, 235, 235);
     zeroChar.bgColor = qRgb(0, 0, 0);
     zeroChar.attrib = TermChar::NoAttributes;
+    zeroChar.width = 1;
 }
 
 VTermBridge::~VTermBridge()
@@ -168,8 +169,12 @@ int VTermBridge::cb_sb_pushline(int cols, const VTermScreenCell* cells, void* us
     auto* self = static_cast<VTermBridge*>(user);
     self->m_backBuffer.append(self->cellsToLine(cols, cells));
 
-    while (self->m_backBuffer.size() > MAX_SCROLLBACK)
-        self->m_backBuffer.removeAt(0);
+    // Single bulk remove instead of O(N) removeAt(0) in a loop.
+    // Under heavy output (millions of lines) the old loop was O(N²) and
+    // hung the GUI thread → noctalia-shell watchdog killed the process.
+    int excess = self->m_backBuffer.size() - MAX_SCROLLBACK;
+    if (excess > 0)
+        self->m_backBuffer.remove(0, excess);
 
     return 1;
 }
@@ -187,8 +192,26 @@ int VTermBridge::cb_sb_popline(int cols, VTermScreenCell* cells, void* user)
         memset(&cells[i], 0, sizeof(VTermScreenCell));
         if (i < line.size()) {
             const TermChar& tc = line.at(i);
-            cells[i].chars[0] = tc.c.unicode();
-            cells[i].width = 1;
+
+            // Preserve cell width as-is. Continuation cells of wide chars
+            // have width=0 and chars[0]=0; libvterm needs to see them
+            // exactly that way to keep its wide-char tracking intact.
+            cells[i].width = tc.width;
+
+            if (tc.width != 0) {
+                // Encode QString back to UCS-4 codepoints, capped at
+                // libvterm's per-cell limit. Preserves combining marks
+                // and supplementary plane (surrogate pairs decoded back
+                // to single codepoints by toUcs4).
+                const QList<uint> ucs4 = tc.c.toUcs4();
+                const int n = qMin(static_cast<int>(ucs4.size()),
+                                   VTERM_MAX_CHARS_PER_CELL - 1);
+                for (int j = 0; j < n; ++j)
+                    cells[i].chars[j] = ucs4[j];
+                // Trailing slots already zeroed by memset.
+            }
+            // For continuation cells (width=0): chars[] stays zeroed.
+
             vterm_color_rgb(&cells[i].fg,
                 qRed(tc.fgColor), qGreen(tc.fgColor), qBlue(tc.fgColor));
             vterm_color_rgb(&cells[i].bg,
@@ -234,7 +257,31 @@ QRgb VTermBridge::vtermColorToQRgb(VTermColor col) const
 TermChar VTermBridge::cellToTermChar(const VTermScreenCell& cell) const
 {
     TermChar tc;
-    tc.c = (cell.chars[0] != 0) ? QChar(cell.chars[0]) : QChar(' ');
+
+    // Build the QString from cell.chars[]:
+    //   chars[0]   = base codepoint (or 0 for empty/continuation cell)
+    //   chars[1..] = combining marks (terminated by 0 or VTERM_MAX_CHARS_PER_CELL)
+    // QString::fromUcs4 handles supplementary plane (>0xFFFF) via surrogate pairs.
+    //
+    // Copy into a local char32_t buffer rather than reinterpret_cast'ing
+    // the uint32_t array — they're layout-compatible but distinct types,
+    // so the cast would technically violate strict aliasing.
+    char32_t chars32[VTERM_MAX_CHARS_PER_CELL];
+    int charCount = 0;
+    while (charCount < VTERM_MAX_CHARS_PER_CELL && cell.chars[charCount] != 0) {
+        chars32[charCount] = static_cast<char32_t>(cell.chars[charCount]);
+        ++charCount;
+    }
+
+    if (charCount > 0) {
+        tc.c = QString::fromUcs4(chars32, charCount);
+    } else {
+        tc.c = QStringLiteral(" ");
+    }
+
+    // Width: 1 = normal, 2 = double-wide, 0 = continuation cell of a wide char.
+    tc.width = cell.width;
+
     tc.fgColor = vtermColorToQRgb(cell.fg);
     tc.bgColor = vtermColorToQRgb(cell.bg);
 
@@ -256,6 +303,7 @@ TermChar VTermBridge::cellToTermChar(const VTermScreenCell& cell) const
 TerminalLine VTermBridge::cellsToLine(int cols, const VTermScreenCell* cells) const
 {
     TerminalLine line;
+    line.reserve(cols);
     for (int i = 0; i < cols; i++)
         line.append(cellToTermChar(cells[i]));
     return line;
@@ -267,9 +315,11 @@ void VTermBridge::rebuildScreenBuffer()
     int cols = m_termSize.width();
 
     m_screenBuffer.clear();
+    m_screenBuffer.reserve(rows);
 
     for (int row = 0; row < rows; row++) {
         TerminalLine line;
+        line.reserve(cols);
         for (int col = 0; col < cols; col++) {
             VTermScreenCell cell;
             VTermPos pos = { .row = row, .col = col };
@@ -560,8 +610,14 @@ QString VTermBridge::selectedText() const
 
         QString rowText;
         if (line) {
-            for (int col = cs; col <= ce && col < line->size(); col++)
-                rowText += line->at(col).c;
+            for (int col = cs; col <= ce && col < line->size(); col++) {
+                const TermChar& tc = line->at(col);
+                // Skip continuation half of wide chars — the codepoint
+                // already came from the previous (width=2) cell.
+                if (tc.width == 0)
+                    continue;
+                rowText += tc.c;
+            }
         }
 
         // Trim trailing whitespace

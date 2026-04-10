@@ -140,26 +140,57 @@ void PtyIFace::onReadReady()
     if (m_childExited)
         return;
 
-    char buf[8192];
-    ssize_t n = read(m_masterFd, buf, sizeof(buf));
+    // Drain the kernel buffer in one notifier fire (standard non-blocking
+    // I/O idiom). BATCH_CAP keeps the GUI thread responsive under heavy
+    // output — when more data is pending, the level-triggered
+    // QSocketNotifier fires again on the next event loop iteration,
+    // naturally yielding for paint/input between batches.
+    constexpr int BATCH_CAP = 256 * 1024;  // 256 KiB
+    char buf[16384];
+    bool gotData = false;
+    int batchSize = 0;
 
-    if (n > 0) {
-        m_readBuf.append(buf, static_cast<int>(n));
-        emit dataAvailable();
-    } else if (n == 0 || (n < 0 && errno != EAGAIN && errno != EINTR)) {
-        // EOF or real error — child is gone
-        if (m_readNotifier)
-            m_readNotifier->setEnabled(false);
-
-        // Reap child
-        if (m_childPid > 0) {
-            int status = 0;
-            waitpid(m_childPid, &status, 0);
-            m_childPid = -1;
+    while (batchSize < BATCH_CAP) {
+        ssize_t n = read(m_masterFd, buf, sizeof(buf));
+        if (n > 0) {
+            m_readBuf.append(buf, static_cast<int>(n));
+            batchSize += n;
+            gotData = true;
+        } else if (n == 0) {
+            // EOF — child closed the PTY
+            if (m_readNotifier)
+                m_readNotifier->setEnabled(false);
+            if (m_childPid > 0) {
+                int status = 0;
+                waitpid(m_childPid, &status, 0);
+                m_childPid = -1;
+            }
+            m_childExited = true;
+            if (gotData)
+                emit dataAvailable();
+            emit hangupReceived();
+            return;
+        } else if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            // Kernel buffer drained — wait for next notifier fire
+            break;
+        } else if (errno == EINTR) {
+            // Interrupted by signal, retry the read
+            continue;
+        } else {
+            // Real error
+            qWarning("PtyIFace: read: %s", strerror(errno));
+            if (m_readNotifier)
+                m_readNotifier->setEnabled(false);
+            m_childExited = true;
+            if (gotData)
+                emit dataAvailable();
+            emit hangupReceived();
+            return;
         }
-        m_childExited = true;
-        emit hangupReceived();
     }
+
+    if (gotData)
+        emit dataAvailable();
 }
 
 void PtyIFace::writeRawTerm(const QByteArray& data)

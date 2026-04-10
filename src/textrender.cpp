@@ -430,31 +430,48 @@ void TextRender::paint(QPainter* painter)
             col = end;
         }
 
-        // Text pass — batch cells with same style
+        // Text pass — batch cells with same style.
+        // Wide chars (width=2) are rendered as standalone batches; their
+        // continuation cell (width=0) is skipped to avoid overdrawing.
         col = 0;
         while (col < xcount) {
             const TermChar& first = line.at(col);
+
+            // Skip continuation cells of wide chars — the wide glyph
+            // already painted into this column's pixel area.
+            if (first.width == 0) {
+                ++col;
+                continue;
+            }
+
             int attrib = first.attrib;
             QRgb fg = first.fgColor;
             QRgb bg = first.bgColor;
             if (attrib & TermChar::NegativeAttribute)
                 std::swap(fg, bg);
 
-            QString text;
-            text += first.c;
-            int end = col + 1;
+            QString text = first.c;
+            // A wide char advances 2 columns; a normal char advances 1.
+            int advance = (first.width == 2) ? 2 : 1;
+            int end = col + advance;
 
-            while (end < xcount) {
-                const TermChar& next = line.at(end);
-                QRgb nfg = next.fgColor;
-                QRgb nbg = next.bgColor;
-                if (next.attrib & TermChar::NegativeAttribute)
-                    std::swap(nfg, nbg);
-
-                if (next.attrib != attrib || nfg != fg || nbg != bg)
-                    break;
-                text += next.c;
-                ++end;
+            // Only batch consecutive width=1 cells with identical style.
+            // Wide chars terminate the batch immediately so they get
+            // their own drawText() call at the right pixel offset.
+            if (first.width == 1) {
+                while (end < xcount) {
+                    const TermChar& next = line.at(end);
+                    if (next.width != 1)
+                        break;
+                    QRgb nfg = next.fgColor;
+                    QRgb nbg = next.bgColor;
+                    if (next.attrib & TermChar::NegativeAttribute)
+                        std::swap(nfg, nbg);
+                    if (next.attrib != attrib || nfg != fg || nbg != bg)
+                        break;
+                    text += next.c;
+                    ++end;
+                }
             }
 
             // Blink: hide text during off phase

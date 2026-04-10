@@ -8,12 +8,12 @@
 #ifndef VTERMBRIDGE_H
 #define VTERMBRIDGE_H
 
-#include <QChar>
 #include <QObject>
 #include <QPoint>
 #include <QRect>
 #include <QRgb>
 #include <QSize>
+#include <QString>
 #include <QVector>
 
 extern "C" {
@@ -32,15 +32,21 @@ struct TermChar {
         BlinkAttribute = 0x10
     };
 
-    QChar c;
+    // QString instead of QChar so we can hold:
+    //   - supplementary plane codepoints (>0xFFFF, e.g., emoji) as surrogate pairs
+    //   - combining marks (e.g., "é" as e + ◌́ when not pre-composed)
+    QString c;
     QRgb fgColor = qRgb(235, 235, 235);
     QRgb bgColor = qRgb(0, 0, 0);
     int attrib = NoAttributes;
+    // 1 = normal, 2 = double-wide (CJK/emoji), 0 = continuation cell of a wide char
+    int width = 1;
 
     bool operator==(const TermChar& other) const
     {
         return c == other.c && fgColor == other.fgColor
-            && bgColor == other.bgColor && attrib == other.attrib;
+            && bgColor == other.bgColor && attrib == other.attrib
+            && width == other.width;
     }
     bool operator!=(const TermChar& other) const { return !(*this == other); }
 };
