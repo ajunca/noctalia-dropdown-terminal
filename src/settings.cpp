@@ -8,6 +8,7 @@
 
 #include <QColor>
 #include <QDir>
+#include <QFileInfo>
 #include <QStandardPaths>
 
 namespace {
@@ -26,6 +27,19 @@ constexpr int kMaxAnimationMs = 2000;
 // Long enough to swallow a slider drag, short enough to feel immediate.
 constexpr int kFlushDelayMs = 300;
 
+// Built-in values, used when neither the user file nor a provisioned baseline
+// supplies a key. Kept as named constants rather than the members' initialisers
+// so that "reset" has something to fall back to after the members have moved.
+constexpr double kDefWidth = 0.6;
+constexpr double kDefHeight = 0.3;
+constexpr double kDefFontSize = 10.5;
+constexpr double kDefOpacity = 0.92;
+constexpr int kDefRadius = 8;
+constexpr int kDefAnimationMs = 180;
+const QString kDefFontFamily = QStringLiteral("Hack");
+const QString kDefForeground = QStringLiteral("#ebebeb");
+const QString kDefBackground = QStringLiteral("#000000");
+
 QString normalisedColour(const QString &value, const QString &fallback)
 {
     const QColor c(value);
@@ -40,9 +54,21 @@ QString Settings::filePath()
     return QDir(dir).filePath(QStringLiteral("dropterm/dropterm.conf"));
 }
 
+QString Settings::defaultsFilePath()
+{
+    const QString dir = QStandardPaths::writableLocation(QStandardPaths::ConfigLocation);
+    return QDir(dir).filePath(QStringLiteral("dropterm/defaults.conf"));
+}
+
+bool Settings::hasProvisionedDefaults() const
+{
+    return QFileInfo::exists(defaultsFilePath());
+}
+
 Settings::Settings(QObject *parent)
     : QObject(parent)
     , m_store(filePath(), QSettings::IniFormat)
+    , m_baseline(defaultsFilePath(), QSettings::IniFormat)
 {
     load();
 
@@ -59,19 +85,30 @@ Settings::~Settings()
     }
 }
 
+QVariant Settings::resolve(const char *key, const QVariant &builtin) const
+{
+    const QString k = QString::fromLatin1(key);
+    if (m_store.contains(k)) {
+        return m_store.value(k);
+    }
+    if (m_baseline.contains(k)) {
+        return m_baseline.value(k);
+    }
+    return builtin;
+}
+
 void Settings::load()
 {
-    m_widthPercent = qBound(kMinWidth, m_store.value("widthPercent", m_widthPercent).toDouble(), kMaxWidth);
-    m_heightPercent =
-        qBound(kMinHeight, m_store.value("heightPercent", m_heightPercent).toDouble(), kMaxHeight);
-    m_fontFamily = m_store.value("fontFamily", m_fontFamily).toString();
-    m_fontSize = qBound(kMinFontSize, m_store.value("fontSize", m_fontSize).toDouble(), kMaxFontSize);
-    m_shellProgram = m_store.value("shellProgram", m_shellProgram).toString();
-    m_foreground = normalisedColour(m_store.value("foreground", m_foreground).toString(), m_foreground);
-    m_background = normalisedColour(m_store.value("background", m_background).toString(), m_background);
-    m_backgroundOpacity = qBound(0.0, m_store.value("backgroundOpacity", m_backgroundOpacity).toDouble(), 1.0);
-    m_cornerRadius = qBound(0, m_store.value("cornerRadius", m_cornerRadius).toInt(), kMaxCornerRadius);
-    m_animationMs = qBound(0, m_store.value("animationMs", m_animationMs).toInt(), kMaxAnimationMs);
+    m_widthPercent = qBound(kMinWidth, resolve("widthPercent", kDefWidth).toDouble(), kMaxWidth);
+    m_heightPercent = qBound(kMinHeight, resolve("heightPercent", kDefHeight).toDouble(), kMaxHeight);
+    m_fontFamily = resolve("fontFamily", kDefFontFamily).toString();
+    m_fontSize = qBound(kMinFontSize, resolve("fontSize", kDefFontSize).toDouble(), kMaxFontSize);
+    m_shellProgram = resolve("shellProgram", QString()).toString();
+    m_foreground = normalisedColour(resolve("foreground", kDefForeground).toString(), kDefForeground);
+    m_background = normalisedColour(resolve("background", kDefBackground).toString(), kDefBackground);
+    m_backgroundOpacity = qBound(0.0, resolve("backgroundOpacity", kDefOpacity).toDouble(), 1.0);
+    m_cornerRadius = qBound(0, resolve("cornerRadius", kDefRadius).toInt(), kMaxCornerRadius);
+    m_animationMs = qBound(0, resolve("animationMs", kDefAnimationMs).toInt(), kMaxAnimationMs);
 }
 
 void Settings::markDirty(const char *key)
@@ -169,16 +206,15 @@ void Settings::reload()
 
 void Settings::resetToDefaults()
 {
-    setWidthPercent(0.6);
-    setHeightPercent(0.3);
-    setFontFamily(QStringLiteral("Hack"));
-    setFontSize(10.5);
-    setShellProgram(QString());
-    setForeground(QStringLiteral("#ebebeb"));
-    setBackground(QStringLiteral("#000000"));
-    setBackgroundOpacity(0.92);
-    setCornerRadius(8);
-    setAnimationMs(180);
+    // Clearing the overrides rather than writing built-in values back is what
+    // makes reset mean "return to the declared baseline" when one exists, and
+    // "return to the built-in values" when it does not.
+    m_dirty.clear();
+    m_flushTimer.stop();
+    m_store.clear();
+    m_store.sync();
+    reload();
+    ipc::send(QByteArrayLiteral("reload"));
 }
 
 void Settings::setWidthPercent(double v)

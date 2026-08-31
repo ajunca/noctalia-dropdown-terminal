@@ -244,20 +244,46 @@ void VTermBridge::setDefaultColors(QRgb fg, QRgb bg)
     if (m_defaultFg == fg && m_defaultBg == bg)
         return;
 
+    const QRgb oldFg = m_defaultFg;
+    const QRgb oldBg = m_defaultBg;
+
     m_defaultFg = fg;
     m_defaultBg = bg;
     zeroChar.fgColor = fg;
     zeroChar.bgColor = bg;
 
-    // Existing cells hold resolved colours, so the live state has to be told
-    // too, otherwise only newly written cells would pick the change up.
     if (m_vt) {
         VTermState* state = vterm_obtain_state(m_vt);
         VTermColor vfg, vbg;
         vterm_color_rgb(&vfg, qRed(fg), qGreen(fg), qBlue(fg));
         vterm_color_rgb(&vbg, qRed(bg), qGreen(bg), qBlue(bg));
         vterm_state_set_default_colors(state, &vfg, &vbg);
+
+        // Cells store *resolved* colours, captured when they were written, and
+        // the renderer decides "is this the default background" by comparing
+        // against zeroChar. Changing the default therefore strands every cell
+        // already on screen: it still holds the old colour, no longer matches,
+        // and gets painted with the old default as though it were explicit.
+        // That is why the change only used to appear where new output landed.
+        // Re-reading the screen re-resolves the visible cells...
+        rebuildScreenBuffer();
     }
+
+    // ...and the scrollback is converted at push time, so it has to be
+    // remapped rather than re-read.
+    const auto remap = [oldFg, oldBg, fg, bg](TerminalBuffer& lines) {
+        for (TerminalLine& line : lines) {
+            for (TermChar& cell : line) {
+                if (cell.fgColor == oldFg)
+                    cell.fgColor = fg;
+                if (cell.bgColor == oldBg)
+                    cell.bgColor = bg;
+            }
+        }
+    };
+    remap(m_backBuffer);
+    if (!m_vt)
+        remap(m_screenBuffer);
 
     emit displayBufferChanged();
 }

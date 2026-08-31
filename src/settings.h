@@ -2,7 +2,16 @@
     Settings — the persisted configuration, shared by the terminal and the
     settings window.
 
-    Backed by QSettings (INI) at $XDG_CONFIG_HOME/dropterm/dropterm.conf.
+    Two layers, so a declarative config and a settings GUI can coexist:
+
+      dropterm/defaults.conf  read-only baseline, typically a store symlink
+                              written by the home-manager module
+      dropterm/dropterm.conf  the user's own overrides — the only file ever
+                              written at runtime
+
+    Lookup is user -> defaults -> built-in, and "reset" clears the user file so
+    the declared baseline takes over again. Writing the baseline itself would
+    make it a read-only symlink and the GUI could never save.
 
     Writing a property updates memory and emits immediately, so the UI stays
     live, but the disk write is debounced and then flushed as a single atomic
@@ -26,6 +35,7 @@
 #include <QObject>
 #include <QSet>
 #include <QSettings>
+#include <QVariant>
 #include <QTimer>
 
 class Settings : public QObject
@@ -48,7 +58,10 @@ public:
     explicit Settings(QObject *parent = nullptr);
     ~Settings() override;
 
+    // The writable user file.
     [[nodiscard]] static QString filePath();
+    // The read-only baseline, if one has been provisioned.
+    [[nodiscard]] static QString defaultsFilePath();
 
     [[nodiscard]] double widthPercent() const { return m_widthPercent; }
     [[nodiscard]] double heightPercent() const { return m_heightPercent; }
@@ -76,8 +89,12 @@ public:
     // the settings process reports a write.
     Q_INVOKABLE void reload();
 
-    // Restore every value to its built-in default.
+    // Drop every user override, falling back to the provisioned baseline and
+    // then to the built-in values.
     Q_INVOKABLE void resetToDefaults();
+
+    // True when a baseline file exists, so the UI can say what reset means.
+    [[nodiscard]] Q_INVOKABLE bool hasProvisionedDefaults() const;
 
 Q_SIGNALS:
     void widthPercentChanged();
@@ -92,6 +109,8 @@ Q_SIGNALS:
     void animationMsChanged();
 
 private:
+    // user override -> provisioned baseline -> built-in
+    [[nodiscard]] QVariant resolve(const char *key, const QVariant &builtin) const;
     void load();
     void markDirty(const char *key);
     void flush();
@@ -107,7 +126,8 @@ private:
     int m_cornerRadius = 8;
     int m_animationMs = 180;
 
-    QSettings m_store;
+    QSettings m_store;      // user overrides, writable
+    QSettings m_baseline;   // provisioned defaults, read-only
     QSet<QString> m_dirty;
     QTimer m_flushTimer;
 };

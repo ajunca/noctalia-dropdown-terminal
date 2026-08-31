@@ -227,7 +227,11 @@ Rectangle {
                     wrapMode: Text.WordWrap
                     color: palette.placeholderText
                     font.pixelSize: 11
-                    text: qsTr("Saved to ~/.config/dropterm/dropterm.conf as you go. Changes "
+                    text: root.settings.hasProvisionedDefaults()
+                        ? qsTr("Overrides are saved to ~/.config/dropterm/dropterm.conf as you "
+                             + "go. Reset discards them and returns to the baseline in "
+                             + "defaults.conf. The shell applies to new tabs.")
+                        : qsTr("Saved to ~/.config/dropterm/dropterm.conf as you go. Changes "
                              + "reach a running terminal immediately; the shell applies to "
                              + "new tabs.")
                 }
@@ -237,7 +241,8 @@ Rectangle {
                     Layout.topMargin: 8
                     Item { Layout.fillWidth: true }
                     Button {
-                        text: qsTr("Reset to defaults")
+                        text: root.settings.hasProvisionedDefaults()
+                              ? qsTr("Reset to baseline") : qsTr("Reset to defaults")
                         onClicked: root.settings.resetToDefaults()
                     }
                 }

@@ -23,17 +23,38 @@ in
           heightPercent = 0.3;
           fontFamily = "Hack";
           fontSize = 10.5;
-          hideOnFocusLoss = true;
+          foreground = "#ebebeb";
+          background = "#000000";
+          backgroundOpacity = 0.92;
+          animationMs = 180;
         }
       '';
       description = ''
-        Settings written to {file}`$XDG_CONFIG_HOME/dropterm/dropterm.conf`.
+        Baseline settings, written to
+        {file}`$XDG_CONFIG_HOME/dropterm/defaults.conf`.
 
-        Read with QSettings in INI format, so the keys live in the `[General]`
-        section this module generates. Recognised keys: `widthPercent`,
-        `heightPercent`, `fontFamily`, `fontSize`, `shellProgram`,
-        `hideOnFocusLoss`, `backgroundOpacity`, `cornerRadius`. Anything
-        omitted falls back to the built-in default.
+        This is the *baseline*, not the live configuration. dropterm resolves
+        each value as user override, then this file, then its built-in default,
+        and only ever writes {file}`dropterm.conf` itself. So these values act
+        as your declared starting point while the settings window stays usable,
+        and its "Reset" returns the terminal to exactly what is declared here.
+
+        Writing {file}`dropterm.conf` from Nix instead would make it a read-only
+        symlink into the store and the settings window could never save.
+
+        Recognised keys, with their built-in defaults:
+
+        - `widthPercent` (0.6) and `heightPercent` (0.3) — fractions of the
+          usable area, clamped to 0.2–1.0 and 0.15–1.0
+        - `fontFamily` ("Hack") and `fontSize` (10.5)
+        - `foreground` ("#ebebeb") and `background` ("#000000")
+        - `backgroundOpacity` (0.92)
+        - `cornerRadius` (8) — the two free, lower corners
+        - `animationMs` (180) — roll-down duration
+        - `shellProgram` ("") — empty uses the shell from passwd
+
+        Values are read with QSettings in INI format, so they live under the
+        `[General]` section this module generates.
       '';
     };
   };
@@ -43,7 +64,7 @@ in
 
     # QSettings resolves un-grouped keys against [General]; writing the header
     # explicitly keeps the file unambiguous rather than relying on that.
-    xdg.configFile."dropterm/dropterm.conf" = lib.mkIf (cfg.settings != { }) {
+    xdg.configFile."dropterm/defaults.conf" = lib.mkIf (cfg.settings != { }) {
       text = lib.generators.toINI { } { General = cfg.settings; };
     };
   };
