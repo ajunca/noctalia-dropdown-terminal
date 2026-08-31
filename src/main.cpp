@@ -24,20 +24,11 @@
 
 #include <LayerShellQt/window.h>
 
+#include "ipc.h"
 #include "settings.h"
 #include "windowcontroller.h"
 
 namespace {
-
-// One socket per user; XDG_RUNTIME_DIR is already per-user and mode 0700.
-QString socketPath()
-{
-    QString runtime = qEnvironmentVariable("XDG_RUNTIME_DIR");
-    if (runtime.isEmpty()) {
-        runtime = QDir::tempPath();
-    }
-    return QDir(runtime).filePath(QStringLiteral("dropterm.sock"));
-}
 
 // The command has to be known before QGuiApplication exists, because the
 // Wayland shell integration is chosen while the platform plugin is built.
@@ -75,21 +66,6 @@ void selectShellIntegration(bool wantsLayerShell)
     }
 }
 
-// Hand the command to an already-running terminal, if there is one.
-bool sendToRunningInstance(const QByteArray &command)
-{
-    QLocalSocket sock;
-    sock.connectToServer(socketPath());
-    if (!sock.waitForConnected(300)) {
-        return false;
-    }
-    sock.write(command);
-    sock.flush();
-    sock.waitForBytesWritten(300);
-    sock.disconnectFromServer();
-    return true;
-}
-
 int runSettings(QGuiApplication &app)
 {
     Settings settings;
@@ -114,7 +90,7 @@ int runSettings(QGuiApplication &app)
 int runTerminal(QGuiApplication &app, const QByteArray &command)
 {
     // With a terminal already running this invocation is only a remote control.
-    if (sendToRunningInstance(command)) {
+    if (ipc::send(command)) {
         return 0;
     }
     if (command == "hide") {
@@ -132,7 +108,7 @@ int runTerminal(QGuiApplication &app, const QByteArray &command)
     view.setResizeMode(QQuickView::SizeRootObjectToView);
     view.setColor(Qt::transparent);
 
-    WindowController controller(&view);
+    WindowController controller(&view, &settings);
     view.setInitialProperties({
         {QStringLiteral("settings"), QVariant::fromValue(static_cast<QObject *>(&settings))},
         {QStringLiteral("controller"), QVariant::fromValue(static_cast<QObject *>(&controller))},
@@ -181,18 +157,21 @@ int runTerminal(QGuiApplication &app, const QByteArray &command)
 
     // ── Toggle IPC ──────────────────────────────────────────────────
     // Safe to clear: we only get here after failing to reach a live instance.
-    QLocalServer::removeServer(socketPath());
+    QLocalServer::removeServer(ipc::socketPath());
     QLocalServer server;
-    if (!server.listen(socketPath())) {
-        qCritical("dropterm: cannot listen on %s: %s", qPrintable(socketPath()),
+    if (!server.listen(ipc::socketPath())) {
+        qCritical("dropterm: cannot listen on %s: %s", qPrintable(ipc::socketPath()),
                   qPrintable(server.errorString()));
         return 1;
     }
     QObject::connect(&server, &QLocalServer::newConnection, &server, [&] {
         while (QLocalSocket *conn = server.nextPendingConnection()) {
-            QObject::connect(conn, &QLocalSocket::readyRead, conn, [conn, &controller] {
+            QObject::connect(conn, &QLocalSocket::readyRead, conn, [conn, &controller, &settings] {
                 const QByteArray cmd = conn->readAll().trimmed();
-                if (cmd == "show") {
+                if (cmd == "reload") {
+                    // Sent by the settings process after it flushes a write.
+                    settings.reload();
+                } else if (cmd == "show") {
                     controller.show();
                 } else if (cmd == "hide") {
                     controller.requestHide();

@@ -32,7 +32,7 @@ qt_add_qml_module(dropterm
     URI dropterm
     VERSION 1.0
     QML_FILES Panel.qml SettingsWindow.qml
-    SOURCES textrender.cpp textrender.h windowcontroller.h settings.cpp settings.h
+    SOURCES textrender.cpp textrender.h windowcontroller.h settings.cpp settings.h ipc.h
     OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/qml/dropterm
 )
 

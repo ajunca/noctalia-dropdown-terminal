@@ -14,8 +14,8 @@ VTermBridge::VTermBridge(QObject* parent)
     : QObject(parent)
 {
     zeroChar.c = QStringLiteral(" ");
-    zeroChar.fgColor = qRgb(235, 235, 235);
-    zeroChar.bgColor = qRgb(0, 0, 0);
+    zeroChar.fgColor = m_defaultFg;
+    zeroChar.bgColor = m_defaultBg;
     zeroChar.attrib = TermChar::NoAttributes;
     zeroChar.width = 1;
 }
@@ -60,8 +60,8 @@ void VTermBridge::init(const QString& charset, const QByteArray& termEnv, const 
     // Default colors
     VTermState* state = vterm_obtain_state(m_vt);
     VTermColor fg, bg;
-    vterm_color_rgb(&fg, 235, 235, 235);
-    vterm_color_rgb(&bg, 0, 0, 0);
+    vterm_color_rgb(&fg, qRed(m_defaultFg), qGreen(m_defaultFg), qBlue(m_defaultFg));
+    vterm_color_rgb(&bg, qRed(m_defaultBg), qGreen(m_defaultBg), qBlue(m_defaultBg));
     vterm_state_set_default_colors(state, &fg, &bg);
 
     vterm_screen_reset(m_vtScreen, 1);
@@ -237,6 +237,29 @@ int VTermBridge::cb_sb_clear(void* user)
     self->m_backBuffer.clear();
     self->m_backBufferScrollPos = 0;
     return 1;
+}
+
+void VTermBridge::setDefaultColors(QRgb fg, QRgb bg)
+{
+    if (m_defaultFg == fg && m_defaultBg == bg)
+        return;
+
+    m_defaultFg = fg;
+    m_defaultBg = bg;
+    zeroChar.fgColor = fg;
+    zeroChar.bgColor = bg;
+
+    // Existing cells hold resolved colours, so the live state has to be told
+    // too, otherwise only newly written cells would pick the change up.
+    if (m_vt) {
+        VTermState* state = vterm_obtain_state(m_vt);
+        VTermColor vfg, vbg;
+        vterm_color_rgb(&vfg, qRed(fg), qGreen(fg), qBlue(fg));
+        vterm_color_rgb(&vbg, qRed(bg), qGreen(bg), qBlue(bg));
+        vterm_state_set_default_colors(state, &vfg, &vbg);
+    }
+
+    emit displayBufferChanged();
 }
 
 // ---------- Conversions ----------

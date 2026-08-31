@@ -14,6 +14,7 @@
 
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Dialogs
 import QtQuick.Layouts
 
 Rectangle {
@@ -23,6 +24,31 @@ Rectangle {
     property QtObject settings: null
 
     color: palette.window
+
+    // A swatch that opens the system colour dialog. Reports the chosen colour
+    // rather than writing it, so the binding direction stays one-way.
+    component ColourSwatch: Rectangle {
+        id: swatch
+        property string value
+        signal picked(string colour)
+
+        implicitHeight: 26
+        radius: 4
+        color: swatch.value
+        border.width: 1
+        border.color: palette.mid
+
+        MouseArea {
+            anchors.fill: parent
+            cursorShape: Qt.PointingHandCursor
+            onClicked: dialog.open()
+        }
+        ColorDialog {
+            id: dialog
+            selectedColor: swatch.value
+            onAccepted: swatch.picked(String(selectedColor))
+        }
+    }
 
     ScrollView {
         anchors.fill: parent
@@ -127,6 +153,32 @@ Rectangle {
                         horizontalAlignment: Text.AlignRight
                     }
 
+                    Label { text: qsTr("Text colour") }
+                    ColourSwatch {
+                        Layout.fillWidth: true
+                        value: root.settings.foreground
+                        onPicked: (colour) => root.settings.foreground = colour
+                    }
+                    Label {
+                        text: root.settings.foreground
+                        Layout.preferredWidth: 44
+                        horizontalAlignment: Text.AlignRight
+                        font.pixelSize: 10
+                    }
+
+                    Label { text: qsTr("Background") }
+                    ColourSwatch {
+                        Layout.fillWidth: true
+                        value: root.settings.background
+                        onPicked: (colour) => root.settings.background = colour
+                    }
+                    Label {
+                        text: root.settings.background
+                        Layout.preferredWidth: 44
+                        horizontalAlignment: Text.AlignRight
+                        font.pixelSize: 10
+                    }
+
                     Label { text: qsTr("Corners") }
                     Slider {
                         id: radiusSlider
@@ -175,8 +227,19 @@ Rectangle {
                     wrapMode: Text.WordWrap
                     color: palette.placeholderText
                     font.pixelSize: 11
-                    text: qsTr("Saved to ~/.config/dropterm/dropterm.conf. Changes reach a "
-                             + "running terminal immediately; the shell applies to new tabs.")
+                    text: qsTr("Saved to ~/.config/dropterm/dropterm.conf as you go. Changes "
+                             + "reach a running terminal immediately; the shell applies to "
+                             + "new tabs.")
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.topMargin: 8
+                    Item { Layout.fillWidth: true }
+                    Button {
+                        text: qsTr("Reset to defaults")
+                        onClicked: root.settings.resetToDefaults()
+                    }
                 }
             }
         }

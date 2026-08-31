@@ -69,6 +69,13 @@ public:
         const QByteArray& termEnv = "xterm-256color",
         const QString& command = "");
 
+    // Colours used for cells that carry no explicit colour. Safe to call
+    // before init() (applied when the state is created) or after (applied to
+    // the live state and repainted). The renderer treats the default
+    // background as transparent so the window's own background shows through,
+    // so bg here is effectively the sentinel that marks "unset".
+    void setDefaultColors(QRgb fg, QRgb bg);
+
     // Size
     void setTermSize(QSize size);
     int rows() const { return m_termSize.height(); }
@@ -127,6 +134,9 @@ private slots:
 
 private:
     // libvterm
+    QRgb m_defaultFg = qRgb(235, 235, 235);
+    QRgb m_defaultBg = qRgb(0, 0, 0);
+
     VTerm* m_vt = nullptr;
     VTermScreen* m_vtScreen = nullptr;
 

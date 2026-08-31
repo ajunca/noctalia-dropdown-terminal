@@ -1,10 +1,15 @@
 /*
     WindowController — the QML's handle on the layer-shell window.
 
-    The QML owns the open/close animation, so hiding is a two-step handshake:
-    requestHide() clears `opened` (the QML animates out) and the QML calls
-    hideCompleted() when the animation has finished, which actually unmaps the
-    window. Hiding directly would cut the animation off.
+    Hiding is deferred so the close animation can play: requestHide() clears
+    `opened` (the QML animates the panel back up) and the window is unmapped
+    once the animation's duration has elapsed.
+
+    The delay is owned here rather than driven by a callback from the QML
+    animation. A callback only fires if the animation actually runs, and it
+    silently does not when the animated value happens not to change — which
+    leaves `opened` false while the window stays mapped, and the dropdown then
+    never closes. Timing it here has one code path and cannot get stuck.
 
     Copyright 2026 ajunca — MIT License
 */
@@ -16,6 +21,9 @@
 #include <QObject>
 #include <QProcess>
 #include <QQuickView>
+#include <QTimer>
+
+#include "settings.h"
 
 class WindowController : public QObject
 {
@@ -26,16 +34,20 @@ class WindowController : public QObject
     Q_PROPERTY(bool opened READ opened NOTIFY openedChanged)
 
 public:
-    explicit WindowController(QQuickView *view, QObject *parent = nullptr)
+    WindowController(QQuickView *view, Settings *settings, QObject *parent = nullptr)
         : QObject(parent)
         , m_view(view)
+        , m_settings(settings)
     {
+        m_hideTimer.setSingleShot(true);
+        connect(&m_hideTimer, &QTimer::timeout, this, [this] { m_view->hide(); });
     }
 
     [[nodiscard]] bool opened() const { return m_opened; }
 
     Q_INVOKABLE void show()
     {
+        m_hideTimer.stop(); // reopening mid-close must not be unmapped later
         m_view->show();
         m_view->requestActivate();
         setOpened(true);
@@ -44,22 +56,21 @@ public:
     Q_INVOKABLE void requestHide()
     {
         if (!m_opened) {
-            m_view->hide(); // already closed, or never animated in
+            m_hideTimer.stop();
+            m_view->hide();
             return;
         }
         setOpened(false);
+        // Small margin so the last animation frame is presented before the
+        // surface goes away.
+        m_hideTimer.start(m_settings->animationMs() + 30);
     }
 
-    Q_INVOKABLE void hideCompleted()
-    {
-        if (!m_opened) {
-            m_view->hide();
-        }
-    }
-
+    // Visibility is not consulted: `opened` is the authority, and the two
+    // differ for as long as the close animation is playing.
     Q_INVOKABLE void toggle()
     {
-        if (m_view->isVisible() && m_opened) {
+        if (m_opened) {
             requestHide();
         } else {
             show();
@@ -91,6 +102,8 @@ private:
     }
 
     QQuickView *const m_view;
+    Settings *const m_settings;
+    QTimer m_hideTimer;
     bool m_opened = false;
 };
 

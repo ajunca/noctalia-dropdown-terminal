@@ -40,12 +40,12 @@ Item {
         y: root.controller.opened ? 0 : -height
         Behavior on y {
             NumberAnimation {
-                // Floor of 1ms: a zero-duration Behavior may be skipped
-                // entirely, and then onFinished would never fire and the
-                // window would never actually hide.
-                duration: Math.max(1, root.settings.animationMs)
+                // Purely visual. The window is unmapped by the controller after
+                // this long, rather than by a callback from here: a Behavior
+                // does not run when the value happens not to change, and a
+                // missed callback would leave the dropdown stuck open.
+                duration: root.settings.animationMs
                 easing.type: Easing.OutCubic
-                onFinished: if (!root.controller.opened) root.controller.hideCompleted()
             }
         }
 
@@ -60,7 +60,10 @@ Item {
         topRightRadius: 0
         bottomLeftRadius: root.settings.cornerRadius
         bottomRightRadius: root.settings.cornerRadius
-        color: Qt.rgba(0, 0, 0, root.settings.backgroundOpacity)
+        // Hue from settings, alpha from the opacity setting. The renderer draws
+        // the terminal's default background as transparent, so this rectangle
+        // *is* the terminal background.
+        color: Qt.alpha(root.settings.background, root.settings.backgroundOpacity)
 
         TextRender {
             id: textrender
@@ -78,6 +81,9 @@ Item {
 
             // Empty string is fine: PtyIFace falls back to the passwd shell.
             shellProgram: root.settings.shellProgram
+
+            defaultForeground: root.settings.foreground
+            defaultBackground: root.settings.background
 
             Component.onCompleted: textrender.forceActiveFocus()
         }

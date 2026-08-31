@@ -8,6 +8,7 @@
 #ifndef TEXTRENDER_H
 #define TEXTRENDER_H
 
+#include <QColor>
 #include <QQuickPaintedItem>
 #include <QtQml/qqmlregistration.h>
 
@@ -33,6 +34,10 @@ class TextRender : public QQuickPaintedItem
     Q_PROPERTY(int sessionCount READ sessionCount NOTIFY sessionCountChanged)
     Q_PROPERTY(int activeSession READ activeSession WRITE setActiveSession
         NOTIFY activeSessionChanged)
+    Q_PROPERTY(QColor defaultForeground READ defaultForeground
+        WRITE setDefaultForeground NOTIFY defaultColorsChanged)
+    Q_PROPERTY(QColor defaultBackground READ defaultBackground
+        WRITE setDefaultBackground NOTIFY defaultColorsChanged)
 
     Q_OBJECT
 public:
@@ -73,6 +78,13 @@ public:
             emit terminalEmulatorChanged();
         }
     }
+    // Colours for cells with no explicit colour. Applied to every session,
+    // existing and future, so a change takes effect without reopening tabs.
+    QColor defaultForeground() const { return m_defaultForeground; }
+    void setDefaultForeground(const QColor& c);
+    QColor defaultBackground() const { return m_defaultBackground; }
+    void setDefaultBackground(const QColor& c);
+
     QList<int> filterKeys() const { return m_filterKeys; }
     void setFilterKeys(const QList<int>& keys) {
         if (m_filterKeys != keys) {
@@ -107,6 +119,7 @@ signals:
     void sessionCountChanged();
     void activeSessionChanged();
     void sessionTitlesChanged();
+    void defaultColorsChanged();
 
 public slots:
     void redraw();
@@ -158,6 +171,8 @@ private:
     QString m_shellProgram;
     QString m_terminalEmulator;
     QList<int> m_filterKeys;
+    QColor m_defaultForeground = QColor(235, 235, 235);
+    QColor m_defaultBackground = QColor(0, 0, 0);
 
     // Timers
     int m_dispatchTimer = 0;

@@ -139,6 +139,7 @@ int TextRender::newSession()
         QSize size(qMax(1, (int)((width() - 4) / m_fontWidth)),
                    qMax(1, (int)((height() - 4) / m_fontHeight)));
         session->setTermSize(size);
+        session->setDefaultColors(m_defaultForeground.rgb(), m_defaultBackground.rgb());
         session->init("UTF-8",
             m_terminalEmulator.isEmpty() ? "xterm-256color"
                                          : m_terminalEmulator.toUtf8(),
@@ -556,6 +557,28 @@ void TextRender::paint(QPainter* painter)
 }
 
 // ── Redraw / timers ─────────────────────────────────────────────────
+
+void TextRender::setDefaultForeground(const QColor& c)
+{
+    if (!c.isValid() || m_defaultForeground == c)
+        return;
+    m_defaultForeground = c;
+    for (VTermBridge* session : std::as_const(s_sessions))
+        session->setDefaultColors(m_defaultForeground.rgb(), m_defaultBackground.rgb());
+    emit defaultColorsChanged();
+    update();
+}
+
+void TextRender::setDefaultBackground(const QColor& c)
+{
+    if (!c.isValid() || m_defaultBackground == c)
+        return;
+    m_defaultBackground = c;
+    for (VTermBridge* session : std::as_const(s_sessions))
+        session->setDefaultColors(m_defaultForeground.rgb(), m_defaultBackground.rgb());
+    emit defaultColorsChanged();
+    update();
+}
 
 void TextRender::redraw()
 {
