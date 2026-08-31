@@ -36,6 +36,8 @@
 #ifndef SETTINGS_H
 #define SETTINGS_H
 
+#include <array>
+
 #include <QObject>
 #include <QSet>
 #include <QSettings>
@@ -132,8 +134,14 @@ Q_SIGNALS:
     void animationMsChanged();
 
 private:
-    // user override -> theme -> provisioned baseline -> built-in
+    // user override -> theme -> provisioned baseline -> built-in.
+    // The typed variants skip a layer whose value will not parse, so a
+    // half-written file cannot win with a garbage value.
+    [[nodiscard]] std::array<const QSettings *, 3> layers() const { return {&m_store, &m_theme, &m_baseline}; }
     [[nodiscard]] QVariant resolve(const char *key, const QVariant &builtin) const;
+    [[nodiscard]] double resolveDouble(const char *key, double builtin) const;
+    [[nodiscard]] int resolveInt(const char *key, int builtin) const;
+    [[nodiscard]] QString resolveColour(const char *key, const QString &builtin) const;
     void load();
     void emitAll();
     void markDirty(const char *key);

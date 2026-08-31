@@ -7,6 +7,8 @@
 #include "ipc.h"
 
 #include <QColor>
+
+#include <optional>
 #include <QDir>
 #include <QFileInfo>
 #include <QStandardPaths>
@@ -44,6 +46,40 @@ QString normalisedColour(const QString &value, const QString &fallback)
 {
     const QColor c(value);
     return c.isValid() ? c.name(QColor::HexRgb) : fallback;
+}
+
+// A layer only counts if it holds a *usable* value for this key. Containing it
+// is not enough: a half-rendered template leaves entries like
+// "backgroundOpacity=", which QVariant::toDouble() happily reports as 0.0 —
+// clamped to a fully transparent terminal that has simply vanished. An
+// unparseable entry must fall through to the next layer instead of winning.
+std::optional<double> layerDouble(const QSettings &s, const QString &k)
+{
+    if (!s.contains(k)) {
+        return std::nullopt;
+    }
+    bool ok = false;
+    const double v = s.value(k).toDouble(&ok);
+    return ok ? std::optional<double>(v) : std::nullopt;
+}
+
+std::optional<int> layerInt(const QSettings &s, const QString &k)
+{
+    if (!s.contains(k)) {
+        return std::nullopt;
+    }
+    bool ok = false;
+    const int v = s.value(k).toInt(&ok);
+    return ok ? std::optional<int>(v) : std::nullopt;
+}
+
+std::optional<QString> layerColour(const QSettings &s, const QString &k)
+{
+    if (!s.contains(k)) {
+        return std::nullopt;
+    }
+    const QColor c(s.value(k).toString());
+    return c.isValid() ? std::optional<QString>(c.name(QColor::HexRgb)) : std::nullopt;
 }
 
 } // namespace
@@ -95,30 +131,60 @@ Settings::~Settings()
 QVariant Settings::resolve(const char *key, const QVariant &builtin) const
 {
     const QString k = QString::fromLatin1(key);
-    if (m_store.contains(k)) {
-        return m_store.value(k);
+    for (const QSettings *s : layers()) {
+        if (s->contains(k)) {
+            return s->value(k);
+        }
     }
-    if (m_theme.contains(k)) {
-        return m_theme.value(k);
+    return builtin;
+}
+
+double Settings::resolveDouble(const char *key, double builtin) const
+{
+    const QString k = QString::fromLatin1(key);
+    for (const QSettings *s : layers()) {
+        if (const auto v = layerDouble(*s, k)) {
+            return *v;
+        }
     }
-    if (m_baseline.contains(k)) {
-        return m_baseline.value(k);
+    return builtin;
+}
+
+int Settings::resolveInt(const char *key, int builtin) const
+{
+    const QString k = QString::fromLatin1(key);
+    for (const QSettings *s : layers()) {
+        if (const auto v = layerInt(*s, k)) {
+            return *v;
+        }
+    }
+    return builtin;
+}
+
+QString Settings::resolveColour(const char *key, const QString &builtin) const
+{
+    const QString k = QString::fromLatin1(key);
+    for (const QSettings *s : layers()) {
+        if (const auto v = layerColour(*s, k)) {
+            return *v;
+        }
     }
     return builtin;
 }
 
 void Settings::load()
 {
-    m_widthPercent = qBound(kMinWidth, resolve("widthPercent", kDefWidth).toDouble(), kMaxWidth);
-    m_heightPercent = qBound(kMinHeight, resolve("heightPercent", kDefHeight).toDouble(), kMaxHeight);
+    m_widthPercent = qBound(kMinWidth, resolveDouble("widthPercent", kDefWidth), kMaxWidth);
+    m_heightPercent = qBound(kMinHeight, resolveDouble("heightPercent", kDefHeight), kMaxHeight);
     m_fontFamily = resolve("fontFamily", kDefFontFamily).toString();
-    m_fontSize = qBound(kMinFontSize, resolve("fontSize", kDefFontSize).toDouble(), kMaxFontSize);
+    m_fontSize = qBound(kMinFontSize, resolveDouble("fontSize", kDefFontSize), kMaxFontSize);
+    // Empty is meaningful here (use the passwd shell), so no validity filter.
     m_shellProgram = resolve("shellProgram", QString()).toString();
-    m_foreground = normalisedColour(resolve("foreground", kDefForeground).toString(), kDefForeground);
-    m_background = normalisedColour(resolve("background", kDefBackground).toString(), kDefBackground);
-    m_backgroundOpacity = qBound(0.0, resolve("backgroundOpacity", kDefOpacity).toDouble(), 1.0);
-    m_cornerRadius = qBound(0, resolve("cornerRadius", kDefRadius).toInt(), kMaxCornerRadius);
-    m_animationMs = qBound(0, resolve("animationMs", kDefAnimationMs).toInt(), kMaxAnimationMs);
+    m_foreground = resolveColour("foreground", kDefForeground);
+    m_background = resolveColour("background", kDefBackground);
+    m_backgroundOpacity = qBound(0.0, resolveDouble("backgroundOpacity", kDefOpacity), 1.0);
+    m_cornerRadius = qBound(0, resolveInt("cornerRadius", kDefRadius), kMaxCornerRadius);
+    m_animationMs = qBound(0, resolveInt("animationMs", kDefAnimationMs), kMaxAnimationMs);
 }
 
 void Settings::markDirty(const char *key)
@@ -226,13 +292,20 @@ QString Settings::sourceOf(const QString &key) const
     // leave the UI claiming a value follows the palette when it no longer does,
     // and — because nothing emits when the flush eventually lands — the tag
     // would never correct itself.
-    if (m_dirty.contains(key) || m_store.contains(key)) {
+    // Colour keys are the ones the UI shows, and they are filtered on validity
+    // when resolved — so report the layer that actually supplied the value, not
+    // merely one that mentions the key.
+    const bool isColour = (key == QLatin1String("foreground") || key == QLatin1String("background"));
+    const auto holds = [&](const QSettings &s) {
+        return isColour ? layerColour(s, key).has_value() : s.contains(key);
+    };
+    if (m_dirty.contains(key) || holds(m_store)) {
         return QStringLiteral("user");
     }
-    if (m_theme.contains(key)) {
+    if (holds(m_theme)) {
         return QStringLiteral("theme");
     }
-    if (m_baseline.contains(key)) {
+    if (holds(m_baseline)) {
         return QStringLiteral("baseline");
     }
     return QStringLiteral("builtin");
