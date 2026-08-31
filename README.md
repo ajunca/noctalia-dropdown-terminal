@@ -1,14 +1,24 @@
 # dropterm
 
-A Yakuake-style dropdown terminal for Wayland, running on its own
-`wlr-layer-shell` surface.
+A Yakuake-style dropdown terminal for Wayland: press a key, a real terminal
+rolls down from the top of the screen, press it again and it goes away.
 
 ![screenshot](screenshot.png)
 
-> **Coming from the noctalia plugin?** Versions up to and including `v1.1.0`
-> were a QML panel plugin for [noctalia-shell](https://github.com/noctalia-dev/noctalia)
-> v4. That still works — stay on the **`v1.1.0`** tag or the **`noctalia-v4`**
-> branch. See [Why it left noctalia](#why-it-left-noctalia).
+It began as a panel plugin for the [noctalia](https://noctalia.dev) desktop
+shell. noctalia v5 was rewritten from QML to native C++ with a sandboxed Luau
+plugin API that cannot host a terminal — no PTY, no canvas to draw a cell grid
+on, and no raw keyboard input ([the details](#why-it-left-noctalia)). Rather
+than lose the terminal, it took ownership of its own window.
+
+So it is now a standalone application that **depends on no shell at all**: it
+draws on its own `wlr-layer-shell` surface, the same mechanism bars and docks
+use. It needs a compositor supporting layer-shell (Hyprland, sway, river,
+niri…) and a key bound to `dropterm toggle`. Nothing else.
+
+> **Using the old noctalia v4 plugin?** It is still there and still works:
+> the **`v1.1.0`** tag, or the **`noctalia-v4`** branch for fixes. Everything
+> from `v2.0.0` on is the standalone application described here.
 
 ## Features
 
@@ -20,13 +30,15 @@ A Yakuake-style dropdown terminal for Wayland, running on its own
 
 ## How it works
 
-The terminal renderer (`TextRender`, `VTermBridge`, `PtyIFace`) is unchanged
-from the plugin. What changed is who owns the window: instead of being drawn
-into a host shell's panel slot, `dropterm` creates its own layer-shell surface
-via [LayerShellQt](https://invent.kde.org/plasma/layer-shell-qt) — the same
-mechanism bars, docks and notification daemons use.
+The terminal itself is Qt Quick over
+[libvterm](https://www.leonerd.org.uk/code/libvterm/): `PtyIFace` runs the
+shell on a pty, `VTermBridge` turns its output into a screen model, and
+`TextRender` paints the cell grid. That part was carried over intact from the
+plugin — what changed is who owns the window. Instead of being drawn into a
+host shell's panel slot, dropterm creates its own layer-shell surface via
+[LayerShellQt](https://invent.kde.org/plasma/layer-shell-qt).
 
-Two details are load-bearing:
+Two details of that surface are load-bearing, and both are easy to get wrong:
 
 - **The surface spans the whole usable output, not just the terminal.** A
   surface sized to the terminal alone is never told about clicks that land
@@ -52,6 +64,9 @@ panels normally behave.
 libvterm-neovim, CMake, pkg-config.
 
 ### NixOS (flake + home-manager)
+
+The repository is still named `noctalia-dropdown-terminal` for the benefit of
+anyone already depending on it; the binary and the module are `dropterm`.
 
 ```nix
 inputs.dropterm.url = "github:ajunca/noctalia-dropdown-terminal";
@@ -119,11 +134,19 @@ QSettings, so keys go under `[General]`). The Nix module writes this for you.
 | `cornerRadius` | `8` | Radius of the two free (bottom) corners |
 | `animationMs` | `180` | Roll-down duration; `0` for instant |
 
-Background blur is a compositor rule, not an application setting. Hyprland:
+Two bits of polish are compositor rules rather than application settings,
+because an application can neither blur what is behind it nor decide how the
+compositor animates its surface appearing. Hyprland:
 
 ```
-layerrule = blur, dropterm
+layerrule = blur, dropterm     # blur behind the terminal
+layerrule = noanim, dropterm   # drop the compositor's fade on open/close
 ```
+
+The second is worth explaining: dropterm animates the roll-down *itself*,
+inside its own surface. A compositor that also fades the surface in on map
+layers one animation over the other. Suppressing it leaves just the movement.
+Both rules are namespace-matched, so they affect nothing else.
 
 ### Where a setting comes from
 
