@@ -14,13 +14,15 @@
     Copyright 2026 ajunca — MIT License
 */
 
-#include <QCommandLineParser>
 #include <QDir>
 #include <QGuiApplication>
 #include <QLocalServer>
 #include <QLocalSocket>
 #include <QQuickView>
 #include <QSurfaceFormat>
+
+#include <cstdio>
+#include <cstring>
 
 #include <LayerShellQt/window.h>
 
@@ -30,17 +32,52 @@
 
 namespace {
 
-// The command has to be known before QGuiApplication exists, because the
-// Wayland shell integration is chosen while the platform plugin is built.
-QByteArray peekCommand(int argc, char *argv[])
+// Argument handling is done by hand, before any Qt object exists.
+// QCommandLineParser would need a QCoreApplication, and the whole point is to
+// reach the socket without constructing an application at all.
+std::string peekCommand(int argc, char *argv[])
 {
     for (int i = 1; i < argc; ++i) {
-        const QByteArray arg(argv[i]);
-        if (!arg.startsWith('-')) {
-            return arg;
+        if (argv[i][0] != '-') {
+            return argv[i];
         }
     }
-    return QByteArrayLiteral("toggle");
+    return "toggle";
+}
+
+bool hasFlag(int argc, char *argv[], const char *shortFlag, const char *longFlag)
+{
+    for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], shortFlag) == 0 || std::strcmp(argv[i], longFlag) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void printUsage()
+{
+    std::puts("Yakuake-style dropdown terminal on wlr-layer-shell.\n"
+              "\n"
+              "Usage: dropterm [command]\n"
+              "\n"
+              "Commands:\n"
+              "  toggle     show the terminal, or hide it if visible (default)\n"
+              "  show       show the terminal\n"
+              "  hide       hide the terminal\n"
+              "  settings   open the settings window\n"
+              "\n"
+              "Options:\n"
+              "  -h, --help     show this help\n"
+              "  -v, --version  show version information\n"
+              "\n"
+              "The first invocation starts the terminal; later ones are forwarded to it\n"
+              "over a socket in $XDG_RUNTIME_DIR.");
+}
+
+bool isKnownCommand(const std::string &c)
+{
+    return c == "toggle" || c == "show" || c == "hide" || c == "settings";
 }
 
 // LayerShellQt's integration returns a layer surface for *every* window in the
@@ -87,16 +124,8 @@ int runSettings(QGuiApplication &app)
     return app.exec();
 }
 
-int runTerminal(QGuiApplication &app, const QByteArray &command)
+int runTerminal(QGuiApplication &app)
 {
-    // With a terminal already running this invocation is only a remote control.
-    if (ipc::send(command)) {
-        return 0;
-    }
-    if (command == "hide") {
-        return 0; // nothing running, nothing to hide
-    }
-
     // The window is hidden rather than closed when dismissed, but a compositor
     // config reload can dismiss the surface outright. Without this the daemon
     // would quit at that point and the keybind would silently stop working.
@@ -157,10 +186,11 @@ int runTerminal(QGuiApplication &app, const QByteArray &command)
 
     // ── Toggle IPC ──────────────────────────────────────────────────
     // Safe to clear: we only get here after failing to reach a live instance.
-    QLocalServer::removeServer(ipc::socketPath());
+    const QString sockPath = QString::fromStdString(ipc::socketPath());
+    QLocalServer::removeServer(sockPath);
     QLocalServer server;
-    if (!server.listen(ipc::socketPath())) {
-        qCritical("dropterm: cannot listen on %s: %s", qPrintable(ipc::socketPath()),
+    if (!server.listen(sockPath)) {
+        qCritical("dropterm: cannot listen on %s: %s", qPrintable(sockPath),
                   qPrintable(server.errorString()));
         return 1;
     }
@@ -194,7 +224,39 @@ int runTerminal(QGuiApplication &app, const QByteArray &command)
 
 int main(int argc, char *argv[])
 {
-    const QByteArray command = peekCommand(argc, argv);
+    const std::string command = peekCommand(argc, argv);
+
+    if (hasFlag(argc, argv, "-h", "--help")) {
+        printUsage();
+        return 0;
+    }
+    if (hasFlag(argc, argv, "-v", "--version")) {
+        std::puts("dropterm 2.0.0");
+        return 0;
+    }
+    if (!isKnownCommand(command)) {
+        std::fprintf(stderr, "dropterm: unknown command '%s' (expected toggle, show, hide or settings)\n",
+                     command.c_str());
+        return 2;
+    }
+
+    // ── Client path: no Qt, deliberately ────────────────────────────
+    // If a terminal is already running this invocation is only a remote
+    // control, and it must reach the socket without constructing an
+    // application: QGuiApplication's constructor calls qFatal() (abort) when it
+    // cannot create a platform plugin, so doing this the other way round meant
+    // `dropterm toggle` dumped core whenever it ran without a usable display.
+    // It is also simply faster — no Wayland connection, no EGL, no QML engine.
+    if (command != "settings") {
+        if (ipc::send(command)) {
+            return 0;
+        }
+        if (command == "hide") {
+            return 0; // nothing running, nothing to hide
+        }
+    }
+
+    // ── From here we are the process that owns a window ─────────────
     const bool isSettings = (command == "settings");
     selectShellIntegration(!isSettings);
 
@@ -210,25 +272,5 @@ int main(int argc, char *argv[])
     app.setApplicationVersion(QStringLiteral("2.0.0"));
     app.setDesktopFileName(QStringLiteral("dropterm"));
 
-    QCommandLineParser parser;
-    parser.setApplicationDescription(
-        QStringLiteral("Yakuake-style dropdown terminal on wlr-layer-shell."));
-    parser.addHelpOption();
-    parser.addVersionOption();
-    parser.addPositionalArgument(
-        QStringLiteral("command"),
-        QStringLiteral("toggle | show | hide | settings (default: toggle)"));
-    parser.process(app);
-
-    if (parser.positionalArguments().size() > 1) {
-        qCritical("dropterm: expected at most one command");
-        return 2;
-    }
-    if (command != "toggle" && command != "show" && command != "hide" && command != "settings") {
-        qCritical("dropterm: unknown command '%s' (expected toggle, show, hide or settings)",
-                  command.constData());
-        return 2;
-    }
-
-    return isSettings ? runSettings(app) : runTerminal(app, command);
+    return isSettings ? runSettings(app) : runTerminal(app);
 }

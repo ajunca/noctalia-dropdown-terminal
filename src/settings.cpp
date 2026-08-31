@@ -153,7 +153,7 @@ void Settings::flush()
     m_store.sync();
 
     // Tell a running terminal to re-read. Failure just means none is running.
-    ipc::send(QByteArrayLiteral("reload"));
+    ipc::send("reload");
 }
 
 void Settings::reload()
@@ -214,7 +214,7 @@ void Settings::resetToDefaults()
     m_store.clear();
     m_store.sync();
     reload();
-    ipc::send(QByteArrayLiteral("reload"));
+    ipc::send("reload");
 }
 
 void Settings::setWidthPercent(double v)
