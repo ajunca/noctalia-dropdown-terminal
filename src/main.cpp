@@ -18,6 +18,7 @@
 #include <QGuiApplication>
 #include <QLocalServer>
 #include <QLocalSocket>
+#include <QQmlEngine>
 #include <QQuickView>
 #include <QSurfaceFormat>
 
@@ -115,6 +116,10 @@ void selectShellIntegration(bool wantsLayerShell)
 int runSettings(QGuiApplication &app)
 {
     Settings settings;
+    // These live on the stack and outlive the view. Ownership is CppOwnership
+    // by default for objects QML did not create, but say so explicitly: if the
+    // engine ever decided it owned them it would delete stack memory.
+    QQmlEngine::setObjectOwnership(&settings, QQmlEngine::CppOwnership);
 
     QQuickView view;
     view.setTitle(QStringLiteral("dropterm settings"));
@@ -147,6 +152,8 @@ int runTerminal(QGuiApplication &app)
     view.setColor(Qt::transparent);
 
     WindowController controller(&view, &settings);
+    QQmlEngine::setObjectOwnership(&settings, QQmlEngine::CppOwnership);
+    QQmlEngine::setObjectOwnership(&controller, QQmlEngine::CppOwnership);
     view.setInitialProperties({
         {QStringLiteral("settings"), QVariant::fromValue(static_cast<QObject *>(&settings))},
         {QStringLiteral("controller"), QVariant::fromValue(static_cast<QObject *>(&controller))},
@@ -240,7 +247,7 @@ int main(int argc, char *argv[])
         return 0;
     }
     if (hasFlag(argc, argv, "-v", "--version")) {
-        std::puts("dropterm 2.0.0");
+        std::puts("dropterm " DROPTERM_VERSION);
         return 0;
     }
     if (!isKnownCommand(command)) {
@@ -279,7 +286,7 @@ int main(int argc, char *argv[])
 
     QGuiApplication app(argc, argv);
     app.setApplicationName(QStringLiteral("dropterm"));
-    app.setApplicationVersion(QStringLiteral("2.0.0"));
+    app.setApplicationVersion(QStringLiteral(DROPTERM_VERSION));
     app.setDesktopFileName(QStringLiteral("dropterm"));
 
     return isSettings ? runSettings(app) : runTerminal(app);

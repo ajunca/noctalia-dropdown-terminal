@@ -179,8 +179,12 @@ void Settings::reload()
     const int oldRadius = m_cornerRadius;
     const int oldAnim = m_animationMs;
 
+    // Every layer load() consults, not just the two that usually move: a
+    // rebuild can replace the baseline under a running terminal, and `reload`
+    // is the only thing that would ever notice.
     m_store.sync();
-    m_theme.sync();   // a theme engine has usually just rewritten this
+    m_theme.sync();
+    m_baseline.sync();
     load();
 
     if (!qFuzzyCompare(oldWidth, m_widthPercent)) {

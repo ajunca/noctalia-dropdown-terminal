@@ -36,6 +36,10 @@ qt_add_qml_module(dropterm
     OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/qml/dropterm
 )
 
+# Single source for the version: CMake's project() value, not a literal
+# repeated in main.cpp.
+target_compile_definitions(dropterm PRIVATE DROPTERM_VERSION="${PROJECT_VERSION}")
+
 target_link_libraries(dropterm PRIVATE
     Qt6::Core
     Qt6::Gui
