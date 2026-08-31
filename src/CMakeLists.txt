@@ -46,6 +46,12 @@ target_link_libraries(dropterm PRIVATE
     util           # forkpty(3)
 )
 
+# The theme template ships with the binary so a declarative config can point at
+# it by store path instead of copying it into the user's home.
+install(FILES templates/dropterm.conf
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/dropterm/templates
+)
+
 install(TARGETS dropterm
     BUNDLE  DESTINATION .
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}

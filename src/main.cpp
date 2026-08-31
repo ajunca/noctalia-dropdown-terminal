@@ -65,6 +65,7 @@ void printUsage()
               "  toggle     show the terminal, or hide it if visible (default)\n"
               "  show       show the terminal\n"
               "  hide       hide the terminal\n"
+              "  reload     re-read configuration, including theme.conf\n"
               "  settings   open the settings window\n"
               "\n"
               "Options:\n"
@@ -77,7 +78,15 @@ void printUsage()
 
 bool isKnownCommand(const std::string &c)
 {
-    return c == "toggle" || c == "show" || c == "hide" || c == "settings";
+    return c == "toggle" || c == "show" || c == "hide" || c == "reload" || c == "settings";
+}
+
+// Commands that are only meaningful against a running terminal. Without this,
+// falling through would *start* one — so a theme engine's post-hook firing on a
+// wallpaper change would open a terminal on the user's desktop.
+bool isRemoteOnly(const std::string &c)
+{
+    return c == "hide" || c == "reload";
 }
 
 // LayerShellQt's integration returns a layer surface for *every* window in the
@@ -118,8 +127,8 @@ int runSettings(QGuiApplication &app)
         qCritical("dropterm: failed to load settings QML");
         return 1;
     }
-    view.setMinimumSize(QSize(380, 340));
-    view.resize(460, 430);
+    view.setMinimumSize(QSize(440, 340));
+    view.resize(520, 430);
     view.show();
     return app.exec();
 }
@@ -235,7 +244,8 @@ int main(int argc, char *argv[])
         return 0;
     }
     if (!isKnownCommand(command)) {
-        std::fprintf(stderr, "dropterm: unknown command '%s' (expected toggle, show, hide or settings)\n",
+        std::fprintf(stderr,
+                     "dropterm: unknown command '%s' (expected toggle, show, hide, reload or settings)\n",
                      command.c_str());
         return 2;
     }
@@ -251,8 +261,8 @@ int main(int argc, char *argv[])
         if (ipc::send(command)) {
             return 0;
         }
-        if (command == "hide") {
-            return 0; // nothing running, nothing to hide
+        if (isRemoteOnly(command)) {
+            return 0; // nothing running: nothing to hide, nothing to reload
         }
     }
 

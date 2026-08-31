@@ -2,16 +2,20 @@
     Settings — the persisted configuration, shared by the terminal and the
     settings window.
 
-    Two layers, so a declarative config and a settings GUI can coexist:
+    Three sources, each with one owner:
 
+      dropterm/dropterm.conf  the user's own overrides — the only file this
+                              program ever writes
+      dropterm/theme.conf     written by a desktop theme engine (noctalia, or
+                              matugen/pywal/a shell script) and refreshed with
+                              `dropterm reload`
       dropterm/defaults.conf  read-only baseline, typically a store symlink
                               written by the home-manager module
-      dropterm/dropterm.conf  the user's own overrides — the only file ever
-                              written at runtime
 
-    Lookup is user -> defaults -> built-in, and "reset" clears the user file so
-    the declared baseline takes over again. Writing the baseline itself would
-    make it a read-only symlink and the GUI could never save.
+    Lookup is user -> theme -> defaults -> built-in. Putting the user first is
+    the point: choosing a colour by hand deliberately stops that key following
+    the desktop palette, and "reset" clears the user file so it follows again.
+    Writing the baseline or theme file from here would fight their owners.
 
     Writing a property updates memory and emits immediately, so the UI stays
     live, but the disk write is debounced and then flushed as a single atomic
@@ -53,6 +57,11 @@ class Settings : public QObject
                    backgroundOpacityChanged)
     Q_PROPERTY(int cornerRadius READ cornerRadius WRITE setCornerRadius NOTIFY cornerRadiusChanged)
     Q_PROPERTY(int animationMs READ animationMs WRITE setAnimationMs NOTIFY animationMsChanged)
+    // Which layer each colour currently comes from, for the UI to show. Tied to
+    // the colour's own signal: clearing an override always re-emits, so these
+    // stay correct even when clearing does not change the resulting value.
+    Q_PROPERTY(QString foregroundSource READ foregroundSource NOTIFY foregroundChanged)
+    Q_PROPERTY(QString backgroundSource READ backgroundSource NOTIFY backgroundChanged)
 
 public:
     explicit Settings(QObject *parent = nullptr);
@@ -62,6 +71,8 @@ public:
     [[nodiscard]] static QString filePath();
     // The read-only baseline, if one has been provisioned.
     [[nodiscard]] static QString defaultsFilePath();
+    // Written by a theme engine; absent unless something provisions it.
+    [[nodiscard]] static QString themeFilePath();
 
     [[nodiscard]] double widthPercent() const { return m_widthPercent; }
     [[nodiscard]] double heightPercent() const { return m_heightPercent; }
@@ -73,6 +84,8 @@ public:
     [[nodiscard]] double backgroundOpacity() const { return m_backgroundOpacity; }
     [[nodiscard]] int cornerRadius() const { return m_cornerRadius; }
     [[nodiscard]] int animationMs() const { return m_animationMs; }
+    [[nodiscard]] QString foregroundSource() const { return sourceOf(QStringLiteral("foreground")); }
+    [[nodiscard]] QString backgroundSource() const { return sourceOf(QStringLiteral("background")); }
 
     void setWidthPercent(double v);
     void setHeightPercent(double v);
@@ -96,6 +109,16 @@ public:
     // True when a baseline file exists, so the UI can say what reset means.
     [[nodiscard]] Q_INVOKABLE bool hasProvisionedDefaults() const;
 
+    // Which layer a key's current value comes from: "user", "theme",
+    // "baseline" or "builtin". Lets the UI show why a value is what it is,
+    // rather than leaving the layering invisible.
+    [[nodiscard]] Q_INVOKABLE QString sourceOf(const QString &key) const;
+
+    // Drop this key's user override so it follows the lower layers again.
+    // This is how "stop customising, follow the desktop theme" is expressed —
+    // there is no separate follow/don't-follow flag to keep in sync.
+    Q_INVOKABLE void clearOverride(const QString &key);
+
 Q_SIGNALS:
     void widthPercentChanged();
     void heightPercentChanged();
@@ -109,9 +132,10 @@ Q_SIGNALS:
     void animationMsChanged();
 
 private:
-    // user override -> provisioned baseline -> built-in
+    // user override -> theme -> provisioned baseline -> built-in
     [[nodiscard]] QVariant resolve(const char *key, const QVariant &builtin) const;
     void load();
+    void emitAll();
     void markDirty(const char *key);
     void flush();
 
@@ -127,6 +151,7 @@ private:
     int m_animationMs = 180;
 
     QSettings m_store;      // user overrides, writable
+    QSettings m_theme;      // theme engine output, read-only
     QSettings m_baseline;   // provisioned defaults, read-only
     QSet<QString> m_dirty;
     QTimer m_flushTimer;

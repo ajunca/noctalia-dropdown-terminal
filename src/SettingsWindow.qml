@@ -25,6 +25,32 @@ Rectangle {
 
     color: palette.window
 
+    // Says which layer a value came from, and — when it came from a hand-picked
+    // override — offers to drop that override so the key follows the desktop
+    // theme again. This is the whole "follow the theme?" control: there is no
+    // separate flag, just whether an override exists.
+    component SourceTag: Label {
+        id: tag
+        property string source: "builtin"
+        signal cleared()
+
+        Layout.preferredWidth: 104
+        horizontalAlignment: Text.AlignRight
+        font.pixelSize: 10
+        color: tag.source === "user" ? palette.link : palette.placeholderText
+        text: tag.source === "user"     ? qsTr("custom — use theme")
+            : tag.source === "theme"    ? qsTr("desktop theme")
+            : tag.source === "baseline" ? qsTr("from Nix")
+                                        : qsTr("default")
+
+        MouseArea {
+            anchors.fill: parent
+            enabled: tag.source === "user"
+            cursorShape: Qt.PointingHandCursor
+            onClicked: tag.cleared()
+        }
+    }
+
     // A swatch that opens the system colour dialog. Reports the chosen colour
     // rather than writing it, so the binding direction stays one-way.
     component ColourSwatch: Rectangle {
@@ -159,11 +185,9 @@ Rectangle {
                         value: root.settings.foreground
                         onPicked: (colour) => root.settings.foreground = colour
                     }
-                    Label {
-                        text: root.settings.foreground
-                        Layout.preferredWidth: 44
-                        horizontalAlignment: Text.AlignRight
-                        font.pixelSize: 10
+                    SourceTag {
+                        source: root.settings.foregroundSource
+                        onCleared: root.settings.clearOverride("foreground")
                     }
 
                     Label { text: qsTr("Background") }
@@ -172,11 +196,9 @@ Rectangle {
                         value: root.settings.background
                         onPicked: (colour) => root.settings.background = colour
                     }
-                    Label {
-                        text: root.settings.background
-                        Layout.preferredWidth: 44
-                        horizontalAlignment: Text.AlignRight
-                        font.pixelSize: 10
+                    SourceTag {
+                        source: root.settings.backgroundSource
+                        onCleared: root.settings.clearOverride("background")
                     }
 
                     Label { text: qsTr("Corners") }

@@ -60,6 +60,12 @@ QString Settings::defaultsFilePath()
     return QDir(dir).filePath(QStringLiteral("dropterm/defaults.conf"));
 }
 
+QString Settings::themeFilePath()
+{
+    const QString dir = QStandardPaths::writableLocation(QStandardPaths::ConfigLocation);
+    return QDir(dir).filePath(QStringLiteral("dropterm/theme.conf"));
+}
+
 bool Settings::hasProvisionedDefaults() const
 {
     return QFileInfo::exists(defaultsFilePath());
@@ -68,6 +74,7 @@ bool Settings::hasProvisionedDefaults() const
 Settings::Settings(QObject *parent)
     : QObject(parent)
     , m_store(filePath(), QSettings::IniFormat)
+    , m_theme(themeFilePath(), QSettings::IniFormat)
     , m_baseline(defaultsFilePath(), QSettings::IniFormat)
 {
     load();
@@ -90,6 +97,9 @@ QVariant Settings::resolve(const char *key, const QVariant &builtin) const
     const QString k = QString::fromLatin1(key);
     if (m_store.contains(k)) {
         return m_store.value(k);
+    }
+    if (m_theme.contains(k)) {
+        return m_theme.value(k);
     }
     if (m_baseline.contains(k)) {
         return m_baseline.value(k);
@@ -170,6 +180,7 @@ void Settings::reload()
     const int oldAnim = m_animationMs;
 
     m_store.sync();
+    m_theme.sync();   // a theme engine has usually just rewritten this
     load();
 
     if (!qFuzzyCompare(oldWidth, m_widthPercent)) {
@@ -204,6 +215,50 @@ void Settings::reload()
     }
 }
 
+QString Settings::sourceOf(const QString &key) const
+{
+    if (m_store.contains(key)) {
+        return QStringLiteral("user");
+    }
+    if (m_theme.contains(key)) {
+        return QStringLiteral("theme");
+    }
+    if (m_baseline.contains(key)) {
+        return QStringLiteral("baseline");
+    }
+    return QStringLiteral("builtin");
+}
+
+void Settings::emitAll()
+{
+    Q_EMIT widthPercentChanged();
+    Q_EMIT heightPercentChanged();
+    Q_EMIT fontFamilyChanged();
+    Q_EMIT fontSizeChanged();
+    Q_EMIT shellProgramChanged();
+    Q_EMIT foregroundChanged();
+    Q_EMIT backgroundChanged();
+    Q_EMIT backgroundOpacityChanged();
+    Q_EMIT cornerRadiusChanged();
+    Q_EMIT animationMsChanged();
+}
+
+void Settings::clearOverride(const QString &key)
+{
+    if (!m_store.contains(key)) {
+        return;
+    }
+    m_dirty.remove(key); // a pending write for this key is now moot
+    m_store.remove(key);
+    m_store.sync();
+    reload();
+    // reload() only emits where the value moved, but dropping an override can
+    // change a key's *source* without changing its value — the UI has to be
+    // told either way.
+    emitAll();
+    ipc::send("reload");
+}
+
 void Settings::resetToDefaults()
 {
     // Clearing the overrides rather than writing built-in values back is what
@@ -214,6 +269,7 @@ void Settings::resetToDefaults()
     m_store.clear();
     m_store.sync();
     reload();
+    emitAll();
     ipc::send("reload");
 }
 
