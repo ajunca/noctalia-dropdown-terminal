@@ -221,7 +221,12 @@ void Settings::reload()
 
 QString Settings::sourceOf(const QString &key) const
 {
-    if (m_store.contains(key)) {
+    // m_dirty as well as m_store: writes are debounced, so a key the user just
+    // set is not on disk yet. Reporting it as still coming from the theme would
+    // leave the UI claiming a value follows the palette when it no longer does,
+    // and — because nothing emits when the flush eventually lands — the tag
+    // would never correct itself.
+    if (m_dirty.contains(key) || m_store.contains(key)) {
         return QStringLiteral("user");
     }
     if (m_theme.contains(key)) {

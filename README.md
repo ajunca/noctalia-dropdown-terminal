@@ -91,6 +91,8 @@ invocations are remote controls over a per-user socket in `$XDG_RUNTIME_DIR`.
 dropterm toggle   # default
 dropterm show
 dropterm hide
+dropterm reload   # re-read configuration, including theme.conf
+dropterm settings # open the settings window
 ```
 
 Bind the toggle in your compositor. Hyprland:
@@ -111,14 +113,68 @@ QSettings, so keys go under `[General]`). The Nix module writes this for you.
 | `fontFamily` | `Hack` | Terminal font |
 | `fontSize` | `10.5` | Point size |
 | `shellProgram` | *(empty)* | Shell to run; empty uses the shell from `passwd` |
+| `foreground` | `#ebebeb` | Default text colour |
+| `background` | `#000000` | Terminal background |
 | `backgroundOpacity` | `0.92` | Background alpha (0.0–1.0) |
 | `cornerRadius` | `8` | Radius of the two free (bottom) corners |
+| `animationMs` | `180` | Roll-down duration; `0` for instant |
 
 Background blur is a compositor rule, not an application setting. Hyprland:
 
 ```
 layerrule = blur, dropterm
 ```
+
+### Where a setting comes from
+
+Each key is resolved from the first of these that provides it:
+
+| | file | written by |
+|---|---|---|
+| 1 | `~/.config/dropterm/dropterm.conf` | dropterm itself, when you change something |
+| 2 | `~/.config/dropterm/theme.conf` | a desktop theme engine (optional) |
+| 3 | `~/.config/dropterm/defaults.conf` | whatever installed dropterm (optional) |
+| 4 | — | built-in defaults |
+
+Only the first is ever written by dropterm. The settings window shows which
+layer each colour came from, and clicking that label drops your override so the
+key follows the layers below it again.
+
+## Following a desktop colour scheme
+
+dropterm knows nothing about any particular desktop. The contract is two
+things, and anything that can do them will work — matugen, pywal, a theme
+engine, or a shell script in a wallpaper hook:
+
+1. Write `~/.config/dropterm/theme.conf`:
+
+   ```ini
+   [General]
+   foreground=#e8e1db
+   background=#15130f
+   ```
+
+2. Run `dropterm reload`.
+
+`reload` only ever talks to a running terminal; if none is running it does
+nothing rather than starting one, so it is safe from a hook that fires often.
+
+A template for [noctalia](https://noctalia.dev) ships at
+`share/dropterm/templates/dropterm.conf`. Point its template engine at it:
+
+```toml
+[theme.templates.user.dropterm]
+input_path  = ".../share/dropterm/templates/dropterm.conf"
+output_path = "~/.config/dropterm/theme.conf"
+post_hook   = "dropterm reload"
+```
+
+The template uses `{{colors.terminal_foreground.default.hex}}`-style variables.
+Other engines use different variable names, so adapt the two lines; the output
+format is what matters, and it is only an INI file with two keys.
+
+Because your own choices sit above the theme layer, picking a colour in the
+settings window stops that key following the scheme, and reverting it resumes.
 
 ## Keyboard shortcuts
 

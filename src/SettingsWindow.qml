@@ -38,9 +38,14 @@ Rectangle {
         horizontalAlignment: Text.AlignRight
         font.pixelSize: 10
         color: tag.source === "user" ? palette.link : palette.placeholderText
-        text: tag.source === "user"     ? qsTr("custom — use theme")
+        // "revert" rather than "use theme": without a theme layer this falls
+        // back to the preset or the built-in, and promising a desktop theme
+        // that may not exist would be a lie. The tag shows where it landed.
+        // "preset" rather than "from Nix": defaults.conf is provisioned by
+        // whatever installed dropterm, which is not always Nix.
+        text: tag.source === "user"     ? qsTr("custom — revert")
             : tag.source === "theme"    ? qsTr("desktop theme")
-            : tag.source === "baseline" ? qsTr("from Nix")
+            : tag.source === "baseline" ? qsTr("preset")
                                         : qsTr("default")
 
         MouseArea {
@@ -251,7 +256,7 @@ Rectangle {
                     font.pixelSize: 11
                     text: root.settings.hasProvisionedDefaults()
                         ? qsTr("Overrides are saved to ~/.config/dropterm/dropterm.conf as you "
-                             + "go. Reset discards them and returns to the baseline in "
+                             + "go. Reset discards them and returns to the preset in "
                              + "defaults.conf. The shell applies to new tabs.")
                         : qsTr("Saved to ~/.config/dropterm/dropterm.conf as you go. Changes "
                              + "reach a running terminal immediately; the shell applies to "
@@ -264,7 +269,7 @@ Rectangle {
                     Item { Layout.fillWidth: true }
                     Button {
                         text: root.settings.hasProvisionedDefaults()
-                              ? qsTr("Reset to baseline") : qsTr("Reset to defaults")
+                              ? qsTr("Reset to preset") : qsTr("Reset to defaults")
                         onClicked: root.settings.resetToDefaults()
                     }
                 }
