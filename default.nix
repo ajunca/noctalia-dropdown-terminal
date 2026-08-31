@@ -1,8 +1,8 @@
-{ lib, stdenv, cmake, pkg-config, qt6, libvterm-neovim }:
+{ lib, stdenv, cmake, pkg-config, qt6, kdePackages, libvterm-neovim }:
 
 stdenv.mkDerivation {
-  pname = "noctalia-dropdown-terminal";
-  version = "1.1.0";
+  pname = "dropterm";
+  version = "2.0.0";
 
   src = ./src;
 
@@ -15,23 +15,18 @@ stdenv.mkDerivation {
   buildInputs = [
     qt6.qtbase
     qt6.qtdeclarative
+    qt6.qtwayland          # Wayland platform plugin, required at runtime
+    kdePackages.layer-shell-qt
     libvterm-neovim
   ];
 
-  dontWrapQtApps = true;
-
-  postInstall = ''
-    mkdir -p $out
-    cp ${./Panel.qml} $out/Panel.qml
-    cp ${./Settings.qml} $out/Settings.qml
-    cp ${./manifest.json} $out/manifest.json
-    mv $out/lib/qt-6/qml/dropterm $out/dropterm
-    rm -rf $out/lib
-  '';
-
   meta = {
-    description = "Yakuake-style dropdown terminal plugin for noctalia-shell";
-    license = lib.licenses.gpl2Plus;
+    description = "Standalone Yakuake-style dropdown terminal on wlr-layer-shell";
+    homepage = "https://github.com/ajunca/noctalia-dropdown-terminal";
+    # Relicensed to MIT in ce96dd1 (the C++ was rewritten from scratch for it);
+    # this expression still claimed GPL-2.0+ until 2.0.0.
+    license = lib.licenses.mit;
+    mainProgram = "dropterm";
     platforms = lib.platforms.linux;
   };
 }

@@ -1,5 +1,5 @@
 {
-  description = "noctalia-dropdown-terminal — Yakuake-style dropdown terminal for noctalia-shell";
+  description = "dropterm — standalone Yakuake-style dropdown terminal on wlr-layer-shell";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";

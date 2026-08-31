@@ -1,33 +1,55 @@
 import QtQuick
-import QtQuick.Window
 import QtQuick.Layouts
-import dropterm
 
+// Root object of the layer-shell view. Surface geometry is owned by the window
+// (src/main.cpp) and this item is resized to match, so it declares no size of
+// its own. Settings are supplied as initial properties from C++.
 Item {
     id: root
 
-    property var pluginApi: null
-    property var screen
-    readonly property var geometryPlaceholder: panelContainer
-    readonly property bool allowAttach: true
-    anchors.fill: parent
+    property string termFontFamily: "Hack"
+    property real termFontSize: 10.5
+    property string shellProgram: ""
+    property real backgroundOpacity: 0.92
+    property int cornerRadius: 8
+    property real widthPercent: 0.6
+    property real heightPercent: 0.3
 
-    readonly property var defaults: pluginApi?.manifest?.metadata?.defaultSettings ?? ({
-        "widthPercent": 0.6, "heightPercent": 0.3, "fontFamily": "Hack", "fontSize": 10.5
-    })
+    // Handle on the layer-shell window, supplied by main.cpp.
+    property QtObject controller: null
 
-    property real widthPercent: pluginApi?.pluginSettings?.widthPercent ?? defaults.widthPercent
-    property real heightPercent: pluginApi?.pluginSettings?.heightPercent ?? defaults.heightPercent
-    property string termFontFamily: pluginApi?.pluginSettings?.fontFamily ?? defaults.fontFamily
-    property real termFontSize: pluginApi?.pluginSettings?.fontSize ?? defaults.fontSize
-
-    property real contentPreferredWidth: Screen.width * Math.max(0.2, widthPercent)
-    property real contentPreferredHeight: Screen.height * Math.max(0.15, heightPercent)
+    // Transparent backdrop covering the rest of the output. Declared first so
+    // it sits behind the terminal in stacking order — anything that reaches it
+    // is by definition a click outside the terminal. This is the only reliable
+    // outside-click signal available: a surface sized to the terminal alone is
+    // never told about clicks elsewhere.
+    MouseArea {
+        anchors.fill: parent
+        acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
+        onClicked: root.controller.hide()
+    }
 
     Rectangle {
         id: panelContainer
-        anchors.fill: parent
-        color: "transparent"
+        anchors.top: parent.top
+        anchors.horizontalCenter: parent.horizontalCenter
+        // Percentages are of the usable area (output minus the bar's exclusive
+        // zone), which is what the compositor sized this surface to.
+        width: Math.round(parent.width * root.widthPercent)
+        height: Math.round(parent.height * root.heightPercent)
+
+        // Background chrome. As a plugin this was transparent because the host
+        // shell drew the panel behind it; standalone we own it. Blur, if
+        // wanted, is a compositor layer rule on the "dropterm" scope, not ours.
+        //
+        // Top corners are square and the panel is flush with the top of the
+        // usable area, so it reads as dropping out of the bar rather than
+        // floating below it. Only the free edges get a radius.
+        topLeftRadius: 0
+        topRightRadius: 0
+        bottomLeftRadius: root.cornerRadius
+        bottomRightRadius: root.cornerRadius
+        color: Qt.rgba(0, 0, 0, root.backgroundOpacity)
 
         TextRender {
             id: textrender
@@ -42,6 +64,9 @@ Item {
 
             font.family: root.termFontFamily
             font.pointSize: root.termFontSize
+
+            // Empty string is fine: PtyIFace falls back to the passwd shell.
+            shellProgram: root.shellProgram
 
             Component.onCompleted: textrender.forceActiveFocus()
         }

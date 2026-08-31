@@ -9,11 +9,14 @@
 #define TEXTRENDER_H
 
 #include <QQuickPaintedItem>
+#include <QtQml/qqmlregistration.h>
 
 #include "vtermbridge.h"
 
 class TextRender : public QQuickPaintedItem
 {
+    QML_ELEMENT
+
     Q_PROPERTY(QString title READ title NOTIFY titleChanged)
     Q_PROPERTY(QFont font READ font WRITE setFont NOTIFY fontChanged)
     Q_PROPERTY(int contentHeight READ contentHeight NOTIFY contentHeightChanged)
