@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include(GNUInstallDirs)
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Qml Quick)
+find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2)
 find_package(LayerShellQt REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(VTERM REQUIRED IMPORTED_TARGET vterm)
@@ -31,8 +31,8 @@ qt_add_executable(dropterm
 qt_add_qml_module(dropterm
     URI dropterm
     VERSION 1.0
-    QML_FILES Panel.qml
-    SOURCES textrender.cpp textrender.h windowcontroller.h
+    QML_FILES Panel.qml SettingsWindow.qml
+    SOURCES textrender.cpp textrender.h windowcontroller.h settings.cpp settings.h
     OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/qml/dropterm
 )
 
@@ -40,6 +40,7 @@ target_link_libraries(dropterm PRIVATE
     Qt6::Core
     Qt6::Gui
     Qt6::Quick
+    Qt6::QuickControls2
     LayerShellQt::Interface
     PkgConfig::VTERM
     util           # forkpty(3)

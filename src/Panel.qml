@@ -7,16 +7,9 @@ import QtQuick.Layouts
 Item {
     id: root
 
-    property string termFontFamily: "Hack"
-    property real termFontSize: 10.5
-    property string shellProgram: ""
-    property real backgroundOpacity: 0.92
-    property int cornerRadius: 8
-    property real widthPercent: 0.6
-    property real heightPercent: 0.3
-
-    // Handle on the layer-shell window, supplied by main.cpp.
-    property QtObject controller: null
+    // Both supplied by main.cpp as initial properties.
+    property QtObject settings: null    // Settings  — persisted configuration
+    property QtObject controller: null  // WindowController — window lifecycle
 
     // Transparent backdrop covering the rest of the output. Declared first so
     // it sits behind the terminal in stacking order — anything that reaches it
@@ -26,17 +19,35 @@ Item {
     MouseArea {
         anchors.fill: parent
         acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
-        onClicked: root.controller.hide()
+        onClicked: root.controller.requestHide()
     }
 
     Rectangle {
         id: panelContainer
-        anchors.top: parent.top
         anchors.horizontalCenter: parent.horizontalCenter
         // Percentages are of the usable area (output minus the bar's exclusive
         // zone), which is what the compositor sized this surface to.
-        width: Math.round(parent.width * root.widthPercent)
-        height: Math.round(parent.height * root.heightPercent)
+        width: Math.round(parent.width * root.settings.widthPercent)
+        height: Math.round(parent.height * root.settings.heightPercent)
+
+        // ── Roll-down ────────────────────────────────────────────
+        // Closed, the panel sits directly above the surface's own top edge and
+        // is clipped away by the surface bounds; open, it rests at the top.
+        // Because a Wayland surface cannot draw outside itself and this surface
+        // starts at the bar's lower edge, the panel appears to roll out from
+        // under the bar and can never cross it. No compositor animation is
+        // involved, so this behaves identically on any layer-shell compositor.
+        y: root.controller.opened ? 0 : -height
+        Behavior on y {
+            NumberAnimation {
+                // Floor of 1ms: a zero-duration Behavior may be skipped
+                // entirely, and then onFinished would never fire and the
+                // window would never actually hide.
+                duration: Math.max(1, root.settings.animationMs)
+                easing.type: Easing.OutCubic
+                onFinished: if (!root.controller.opened) root.controller.hideCompleted()
+            }
+        }
 
         // Background chrome. As a plugin this was transparent because the host
         // shell drew the panel behind it; standalone we own it. Blur, if
@@ -47,9 +58,9 @@ Item {
         // floating below it. Only the free edges get a radius.
         topLeftRadius: 0
         topRightRadius: 0
-        bottomLeftRadius: root.cornerRadius
-        bottomRightRadius: root.cornerRadius
-        color: Qt.rgba(0, 0, 0, root.backgroundOpacity)
+        bottomLeftRadius: root.settings.cornerRadius
+        bottomRightRadius: root.settings.cornerRadius
+        color: Qt.rgba(0, 0, 0, root.settings.backgroundOpacity)
 
         TextRender {
             id: textrender
@@ -62,11 +73,11 @@ Item {
             anchors.rightMargin: 2
             focus: true
 
-            font.family: root.termFontFamily
-            font.pointSize: root.termFontSize
+            font.family: root.settings.fontFamily
+            font.pointSize: root.settings.fontSize
 
             // Empty string is fine: PtyIFace falls back to the passwd shell.
-            shellProgram: root.shellProgram
+            shellProgram: root.settings.shellProgram
 
             Component.onCompleted: textrender.forceActiveFocus()
         }
@@ -157,14 +168,43 @@ Item {
             anchors.bottomMargin: 6
             height: 28
 
+            // Settings launcher, right end of the tab bar.
+            Rectangle {
+                id: gearButton
+                anchors.right: parent.right
+                anchors.rightMargin: 10
+                anchors.verticalCenter: parent.verticalCenter
+                height: 22
+                width: 28
+                radius: 4
+                color: gearMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.15) : Qt.rgba(1, 1, 1, 0.05)
+
+                Text {
+                    anchors.centerIn: parent
+                    text: "\u2699"
+                    color: gearMouse.containsMouse ? "#ffffff" : "#aaaaaa"
+                    font.pixelSize: 13
+                }
+
+                MouseArea {
+                    id: gearMouse
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    // Runs `dropterm settings` and closes the dropdown: the two
+                    // cannot share a screen, since an overlay layer surface is
+                    // always above ordinary windows and holds the keyboard.
+                    onClicked: root.controller.openSettings()
+                }
+            }
+
             Flickable {
                 id: tabFlick
                 anchors.left: parent.left
-                anchors.right: parent.right
+                anchors.right: gearButton.left
                 anchors.top: parent.top
                 anchors.bottom: parent.bottom
                 anchors.leftMargin: 10
-                anchors.rightMargin: 10
+                anchors.rightMargin: 8
                 contentWidth: tabRow.width
                 contentHeight: height
                 clip: true
@@ -221,7 +261,7 @@ Item {
                                     text: textrender.sessionTitle(index)
                                     color: index === textrender.activeSession ? "#ffffff" : "#aaaaaa"
                                     font.pixelSize: 11
-                                    font.family: root.termFontFamily
+                                    font.family: root.settings.fontFamily
                                     Layout.fillWidth: true
                                 }
 
@@ -264,7 +304,7 @@ Item {
                             text: "+"
                             color: "#aaaaaa"
                             font.pixelSize: 14
-                            font.family: root.termFontFamily
+                            font.family: root.settings.fontFamily
                         }
 
                         MouseArea {
