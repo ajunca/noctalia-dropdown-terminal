@@ -8,6 +8,9 @@
 #ifndef VTERMBRIDGE_H
 #define VTERMBRIDGE_H
 
+#include <array>
+
+#include <QColor>
 #include <QObject>
 #include <QPoint>
 #include <QRect>
@@ -76,6 +79,11 @@ public:
     // so bg here is effectively the sentinel that marks "unset".
     void setDefaultColors(QRgb fg, QRgb bg);
 
+    // The 16 ANSI colours (0-7 normal, 8-15 bright). An invalid entry keeps
+    // libvterm's own colour for that index. Like setDefaultColors(), safe to
+    // call before or after init().
+    void setPalette(const std::array<QColor, 16>& colours);
+
     // Size
     void setTermSize(QSize size);
     int rows() const { return m_termSize.height(); }
@@ -136,6 +144,10 @@ private:
     // libvterm
     QRgb m_defaultFg = qRgb(235, 235, 235);
     QRgb m_defaultBg = qRgb(0, 0, 0);
+    std::array<QColor, 16> m_palette;
+    // libvterm's palette as it was before any override, captured at init()
+    // so that dropping an override can restore the colour it replaced.
+    std::array<QRgb, 16> m_builtinPalette {};
 
     VTerm* m_vt = nullptr;
     VTermScreen* m_vtScreen = nullptr;
@@ -163,6 +175,10 @@ private:
     // Title
     QString m_title;
     QString m_pendingTitle;
+
+    // The palette libvterm should be using: overrides over the built-in one.
+    std::array<QRgb, 16> effectivePalette() const;
+    void applyPalette();
 
     // Conversions
     QRgb vtermColorToQRgb(VTermColor col) const;

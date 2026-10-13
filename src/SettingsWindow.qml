@@ -46,6 +46,7 @@ Rectangle {
         text: tag.source === "user"     ? qsTr("custom — revert")
             : tag.source === "theme"    ? qsTr("desktop theme")
             : tag.source === "baseline" ? qsTr("preset")
+            : tag.source === "scheme"   ? qsTr("colour scheme")
                                         : qsTr("default")
 
         MouseArea {
@@ -182,6 +183,36 @@ Rectangle {
                         text: Math.round(opacitySlider.value * 100) + "%"
                         Layout.preferredWidth: 44
                         horizontalAlignment: Text.AlignRight
+                    }
+
+                    Label { text: qsTr("Colour scheme") }
+                    ComboBox {
+                        id: schemeBox
+                        Layout.fillWidth: true
+                        // "" is "no scheme". A scheme set by path, or one that
+                        // has since gone missing, is listed as written so the
+                        // box can still show what is configured.
+                        model: {
+                            const names = Array.from(root.settings.availableColorSchemes());
+                            const current = root.settings.colorScheme;
+                            if (current !== "" && names.indexOf(current) < 0)
+                                names.push(current);
+                            return [""].concat(names);
+                        }
+                        currentIndex: schemeBox.model.indexOf(root.settings.colorScheme)
+                        displayText: schemeBox.currentText === "" ? qsTr("None") : schemeBox.currentText
+                        delegate: ItemDelegate {
+                            required property string modelData
+                            required property int index
+                            width: ListView.view.width
+                            text: modelData === "" ? qsTr("None") : modelData
+                            highlighted: schemeBox.highlightedIndex === index
+                        }
+                        onActivated: (index) => root.settings.colorScheme = schemeBox.model[index]
+                    }
+                    SourceTag {
+                        source: root.settings.colorSchemeSource
+                        onCleared: root.settings.clearOverride("colorScheme")
                     }
 
                     Label { text: qsTr("Text colour") }

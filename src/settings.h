@@ -17,6 +17,12 @@
     the desktop palette, and "reset" clears the user file so it follows again.
     Writing the baseline or theme file from here would fight their owners.
 
+    A file can also name a colour scheme (`colorScheme`, a Konsole/Yakuake
+    .colorscheme). The scheme's colours slot in directly beneath the file that
+    named it, as if pasted into that file under its own explicit keys: picked
+    in the user file it beats the desktop theme, declared in the baseline it
+    does not, and either way a colour set by hand in the same file still wins.
+
     Writing a property updates memory and emits immediately, so the UI stays
     live, but the disk write is debounced and then flushed as a single atomic
     sync of every pending key. That matters twice over: a slider emits
@@ -41,8 +47,21 @@
 #include <QObject>
 #include <QSet>
 #include <QSettings>
+#include <QStringList>
+#include <QVarLengthArray>
 #include <QVariant>
+#include <QVariantHash>
 #include <QTimer>
+
+// One rung of the lookup: a settings file, or the colour scheme a file names.
+struct SettingsLayer {
+    const char *name; // what sourceOf() reports for a value found here
+    const QSettings *file = nullptr;
+    const QVariantHash *scheme = nullptr;
+
+    [[nodiscard]] bool contains(const QString &k) const { return file ? file->contains(k) : scheme->contains(k); }
+    [[nodiscard]] QVariant value(const QString &k) const { return file ? file->value(k) : scheme->value(k); }
+};
 
 class Settings : public QObject
 {
@@ -64,6 +83,12 @@ class Settings : public QObject
     // stay correct even when clearing does not change the resulting value.
     Q_PROPERTY(QString foregroundSource READ foregroundSource NOTIFY foregroundChanged)
     Q_PROPERTY(QString backgroundSource READ backgroundSource NOTIFY backgroundChanged)
+    // A Konsole/Yakuake .colorscheme, by name or path. Empty means none.
+    Q_PROPERTY(QString colorScheme READ colorScheme WRITE setColorScheme NOTIFY colorSchemeChanged)
+    Q_PROPERTY(QString colorSchemeSource READ colorSchemeSource NOTIFY colorSchemeChanged)
+    // The 16 ANSI colours, keys color0..color15. An empty entry means no layer
+    // sets it and the terminal keeps its own colour for that index.
+    Q_PROPERTY(QStringList ansiColors READ ansiColors NOTIFY ansiColorsChanged)
 
 public:
     explicit Settings(QObject *parent = nullptr);
@@ -88,6 +113,9 @@ public:
     [[nodiscard]] int animationMs() const { return m_animationMs; }
     [[nodiscard]] QString foregroundSource() const { return sourceOf(QStringLiteral("foreground")); }
     [[nodiscard]] QString backgroundSource() const { return sourceOf(QStringLiteral("background")); }
+    [[nodiscard]] QString colorScheme() const { return m_colorScheme; }
+    [[nodiscard]] QString colorSchemeSource() const { return sourceOf(QStringLiteral("colorScheme")); }
+    [[nodiscard]] QStringList ansiColors() const { return m_ansiColors; }
 
     void setWidthPercent(double v);
     void setHeightPercent(double v);
@@ -99,6 +127,16 @@ public:
     void setBackgroundOpacity(double v);
     void setCornerRadius(int v);
     void setAnimationMs(int v);
+    void setColorScheme(const QString &v);
+
+    // Names of the .colorscheme files found where colorScheme looks for them:
+    // ~/.config/dropterm/colorschemes, then konsole/ under each XDG data dir
+    // (~/.local/share/konsole and the system ones), which is where Konsole and
+    // Yakuake keep theirs.
+    [[nodiscard]] Q_INVOKABLE static QStringList availableColorSchemes();
+    // The file a colorScheme value refers to, or empty if there is none. A
+    // value containing a slash is a path; anything else a name to search for.
+    [[nodiscard]] static QString locateColorScheme(const QString &name);
 
     // Re-read from disk and emit whatever changed. The terminal calls this when
     // the settings process reports a write.
@@ -112,7 +150,7 @@ public:
     [[nodiscard]] Q_INVOKABLE bool hasProvisionedDefaults() const;
 
     // Which layer a key's current value comes from: "user", "theme",
-    // "baseline" or "builtin". Lets the UI show why a value is what it is,
+    // "baseline", "scheme" or "builtin". Lets the UI show why a value is what it is,
     // rather than leaving the layering invisible.
     [[nodiscard]] Q_INVOKABLE QString sourceOf(const QString &key) const;
 
@@ -132,16 +170,20 @@ Q_SIGNALS:
     void backgroundOpacityChanged();
     void cornerRadiusChanged();
     void animationMsChanged();
+    void colorSchemeChanged();
+    void ansiColorsChanged();
 
 private:
-    // user override -> theme -> provisioned baseline -> built-in.
+    // user override -> theme -> provisioned baseline -> built-in, with the
+    // colour scheme (if any) directly beneath the file that named it.
     // The typed variants skip a layer whose value will not parse, so a
     // half-written file cannot win with a garbage value.
-    [[nodiscard]] std::array<const QSettings *, 3> layers() const { return {&m_store, &m_theme, &m_baseline}; }
+    [[nodiscard]] std::array<SettingsLayer, 3> fileLayers() const;
+    [[nodiscard]] QVarLengthArray<SettingsLayer, 4> layers() const;
     [[nodiscard]] QVariant resolve(const char *key, const QVariant &builtin) const;
     [[nodiscard]] double resolveDouble(const char *key, double builtin) const;
     [[nodiscard]] int resolveInt(const char *key, int builtin) const;
-    [[nodiscard]] QString resolveColour(const char *key, const QString &builtin) const;
+    [[nodiscard]] QString resolveColour(const QString &key, const QString &builtin) const;
     void load();
     void emitAll();
     void markDirty(const char *key);
@@ -157,6 +199,11 @@ private:
     double m_backgroundOpacity = 0.92;
     int m_cornerRadius = 8;
     int m_animationMs = 180;
+    QString m_colorScheme;
+    QStringList m_ansiColors;
+
+    QVariantHash m_scheme;  // the named scheme, already in dropterm's keys
+    int m_schemeOwner = -1; // index into fileLayers() of the file naming it
 
     QSettings m_store;      // user overrides, writable
     QSettings m_theme;      // theme engine output, read-only

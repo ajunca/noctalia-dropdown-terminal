@@ -84,6 +84,7 @@ Item {
 
             defaultForeground: root.settings.foreground
             defaultBackground: root.settings.background
+            ansiColors: root.settings.ansiColors
 
             Component.onCompleted: textrender.forceActiveFocus()
         }

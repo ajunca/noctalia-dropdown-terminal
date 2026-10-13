@@ -49,6 +49,10 @@ in
         - `fontFamily` ("Hack") and `fontSize` (10.5)
         - `foreground` ("#ebebeb") and `background` ("#000000")
         - `backgroundOpacity` (0.92)
+        - `color0` … `color15` (libvterm's) — the ANSI palette, 8–15 bright
+        - `colorScheme` ("") — a Konsole/Yakuake `.colorscheme`, by name or
+          path, e.g. `"''${./ayu.colorscheme}"`; it supplies the colours and
+          opacity beneath the keys set here
         - `cornerRadius` (8) — the two free, lower corners
         - `animationMs` (180) — roll-down duration
         - `shellProgram` ("") — empty uses the shell from passwd

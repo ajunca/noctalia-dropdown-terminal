@@ -9,6 +9,7 @@
 #include "ptyiface.h"
 
 #include <QDebug>
+#include <QHash>
 
 VTermBridge::VTermBridge(QObject* parent)
     : QObject(parent)
@@ -63,6 +64,13 @@ void VTermBridge::init(const QString& charset, const QByteArray& termEnv, const 
     vterm_color_rgb(&fg, qRed(m_defaultFg), qGreen(m_defaultFg), qBlue(m_defaultFg));
     vterm_color_rgb(&bg, qRed(m_defaultBg), qGreen(m_defaultBg), qBlue(m_defaultBg));
     vterm_state_set_default_colors(state, &fg, &bg);
+
+    for (int i = 0; i < 16; i++) {
+        VTermColor col;
+        vterm_state_get_palette_color(state, i, &col);
+        m_builtinPalette[i] = qRgb(col.rgb.red, col.rgb.green, col.rgb.blue);
+    }
+    applyPalette();
 
     vterm_screen_reset(m_vtScreen, 1);
 
@@ -284,6 +292,70 @@ void VTermBridge::setDefaultColors(QRgb fg, QRgb bg)
     remap(m_backBuffer);
     if (!m_vt)
         remap(m_screenBuffer);
+
+    emit displayBufferChanged();
+}
+
+std::array<QRgb, 16> VTermBridge::effectivePalette() const
+{
+    std::array<QRgb, 16> out = m_builtinPalette;
+    for (int i = 0; i < 16; i++) {
+        if (m_palette[i].isValid())
+            out[i] = m_palette[i].rgb();
+    }
+    return out;
+}
+
+void VTermBridge::applyPalette()
+{
+    VTermState* state = vterm_obtain_state(m_vt);
+    const std::array<QRgb, 16> palette = effectivePalette();
+    for (int i = 0; i < 16; i++) {
+        VTermColor col;
+        vterm_color_rgb(&col, qRed(palette[i]), qGreen(palette[i]), qBlue(palette[i]));
+        vterm_state_set_palette_color(state, i, &col);
+    }
+}
+
+void VTermBridge::setPalette(const std::array<QColor, 16>& colours)
+{
+    if (m_palette == colours)
+        return;
+
+    // Before init() there is no state and nothing on screen; init() applies it.
+    if (!m_vt) {
+        m_palette = colours;
+        return;
+    }
+
+    const std::array<QRgb, 16> oldPalette = effectivePalette();
+    m_palette = colours;
+    applyPalette();
+    const std::array<QRgb, 16> newPalette = effectivePalette();
+
+    // Same problem as setDefaultColors(): the screen still holds indexed
+    // colours and can simply be re-read, but scrollback was resolved to RGB at
+    // push time and has to be remapped by value. Where two indices shared a
+    // colour the first wins, and a cell matching the default colour is left
+    // alone: it is far more likely to be default than an explicit colour that
+    // happens to coincide, and remapping it would make the transparent default
+    // background opaque.
+    rebuildScreenBuffer();
+    QHash<QRgb, QRgb> remap;
+    for (int i = 0; i < 16; i++) {
+        if (oldPalette[i] != newPalette[i] && !remap.contains(oldPalette[i]))
+            remap.insert(oldPalette[i], newPalette[i]);
+    }
+    if (!remap.isEmpty()) {
+        for (TerminalLine& line : m_backBuffer) {
+            for (TermChar& cell : line) {
+                if (cell.fgColor != zeroChar.fgColor)
+                    cell.fgColor = remap.value(cell.fgColor, cell.fgColor);
+                if (cell.bgColor != zeroChar.bgColor)
+                    cell.bgColor = remap.value(cell.bgColor, cell.bgColor);
+            }
+        }
+    }
 
     emit displayBufferChanged();
 }

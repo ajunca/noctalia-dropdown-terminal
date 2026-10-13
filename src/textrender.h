@@ -10,6 +10,7 @@
 
 #include <QColor>
 #include <QQuickPaintedItem>
+#include <QStringList>
 #include <QtQml/qqmlregistration.h>
 
 #include "vtermbridge.h"
@@ -38,6 +39,9 @@ class TextRender : public QQuickPaintedItem
         WRITE setDefaultForeground NOTIFY defaultColorsChanged)
     Q_PROPERTY(QColor defaultBackground READ defaultBackground
         WRITE setDefaultBackground NOTIFY defaultColorsChanged)
+    // Not "palette": QQuickItem already has one, for the control style.
+    Q_PROPERTY(QStringList ansiColors READ ansiColors WRITE setAnsiColors
+        NOTIFY ansiColorsChanged)
 
     Q_OBJECT
 public:
@@ -84,6 +88,10 @@ public:
     void setDefaultForeground(const QColor& c);
     QColor defaultBackground() const { return m_defaultBackground; }
     void setDefaultBackground(const QColor& c);
+    // The 16 ANSI colours, as colour strings. An empty or invalid entry keeps
+    // the terminal's own colour for that index. Applied like the defaults.
+    QStringList ansiColors() const { return m_ansiColors; }
+    void setAnsiColors(const QStringList& colours);
 
     QList<int> filterKeys() const { return m_filterKeys; }
     void setFilterKeys(const QList<int>& keys) {
@@ -120,6 +128,7 @@ signals:
     void activeSessionChanged();
     void sessionTitlesChanged();
     void defaultColorsChanged();
+    void ansiColorsChanged();
 
 public slots:
     void redraw();
@@ -173,6 +182,8 @@ private:
     QList<int> m_filterKeys;
     QColor m_defaultForeground = QColor(235, 235, 235);
     QColor m_defaultBackground = QColor(0, 0, 0);
+    QStringList m_ansiColors;
+    std::array<QColor, 16> palette() const;
 
     // Timers
     int m_dispatchTimer = 0;

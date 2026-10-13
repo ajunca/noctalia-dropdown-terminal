@@ -131,6 +131,8 @@ QSettings, so keys go under `[General]`). The Nix module writes this for you.
 | `foreground` | `#ebebeb` | Default text colour |
 | `background` | `#000000` | Terminal background |
 | `backgroundOpacity` | `0.92` | Background alpha (0.0–1.0) |
+| `color0` … `color15` | *(libvterm's)* | The ANSI palette: 0–7 normal, 8–15 bright |
+| `colorScheme` | *(empty)* | A Konsole/Yakuake colour scheme, by name or path; see [Colour schemes](#colour-schemes) |
 | `cornerRadius` | `8` | Radius of the two free (bottom) corners |
 | `animationMs` | `180` | Roll-down duration; `0` for instant |
 
@@ -163,6 +165,50 @@ Only the first is ever written by dropterm. The settings window shows which
 layer each colour came from, and clicking that label drops your override so the
 key follows the layers below it again.
 
+A colour scheme named by one of these files slots in directly beneath that
+file; see below.
+
+## Colour schemes
+
+dropterm reads Konsole's `.colorscheme` files, which are also what Yakuake
+uses. Set `colorScheme` to a scheme's name, or pick one in the settings window:
+
+```ini
+[General]
+colorScheme=ayu
+```
+
+A name is looked up as `<name>.colorscheme` in, in order:
+
+- `~/.config/dropterm/colorschemes/`
+- `konsole/` under each XDG data directory — `~/.local/share/konsole/`, where
+  Konsole and Yakuake save schemes you make, then the system ones such as
+  `/usr/share/konsole/`
+
+Anything containing a `/` is taken as a path instead (a leading `~/` is
+expanded), which is the convenient form from Nix:
+`colorScheme = "${./ayu.colorscheme}"`.
+
+What is taken from the scheme:
+
+| scheme | dropterm |
+|---|---|
+| `[Foreground]`, `[Background]` | `foreground`, `background` |
+| `[Color0]` … `[Color7]` | `color0` … `color7` |
+| `[Color0Intense]` … `[Color7Intense]` | `color8` … `color15` |
+| `Opacity` under `[General]` | `backgroundOpacity` |
+
+The faint colours, the intense and faint foreground and background, colour
+randomisation, blur and wallpaper have no equivalent here and are ignored. Blur
+is a compositor rule; see above.
+
+The scheme's values sit directly beneath the file that named it, as if they had
+been pasted into that file under its own keys. So a scheme you pick yourself
+beats the desktop theme, a scheme declared in `defaults.conf` does not, and a
+colour you set by hand wins over the scheme either way. `colorScheme=` (empty)
+in your own file turns off a scheme declared further down. Edits to the scheme
+file are picked up by `dropterm reload`.
+
 ## Following a desktop colour scheme
 
 dropterm knows nothing about any particular desktop. The contract is two
@@ -194,7 +240,8 @@ post_hook   = "dropterm reload"
 
 The template uses `{{colors.terminal_foreground.default.hex}}`-style variables.
 Other engines use different variable names, so adapt the two lines; the output
-format is what matters, and it is only an INI file with two keys.
+format is what matters, and it is only an INI file with two keys. An engine
+that produces a terminal palette can write `color0` … `color15` there too.
 
 Because your own choices sit above the theme layer, picking a colour in the
 settings window stops that key following the scheme, and reverting it resumes.
