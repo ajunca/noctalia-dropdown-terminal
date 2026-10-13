@@ -156,8 +156,9 @@ void PtyIFace::onReadReady()
             m_readBuf.append(buf, static_cast<int>(n));
             batchSize += n;
             gotData = true;
-        } else if (n == 0) {
-            // EOF — child closed the PTY
+        } else if (n == 0 || errno == EIO) {
+            // Child closed the PTY. BSDs report this as EOF; Linux reports
+            // it as EIO once the last slave fd is gone.
             if (m_readNotifier)
                 m_readNotifier->setEnabled(false);
             if (m_childPid > 0) {

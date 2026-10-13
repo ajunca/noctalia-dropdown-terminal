@@ -85,6 +85,10 @@ Item {
             defaultForeground: root.settings.foreground
             defaultBackground: root.settings.background
 
+            // `exit` in the only tab: it already holds a fresh shell, so just
+            // put the dropdown away, as closing it would in a normal terminal.
+            onLastSessionExited: root.controller.requestHide()
+
             Component.onCompleted: textrender.forceActiveFocus()
         }
 

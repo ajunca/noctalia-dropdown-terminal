@@ -13,6 +13,7 @@
 #include <QFontMetricsF>
 #include <QGuiApplication>
 #include <QPainter>
+#include <QPointer>
 #include <QTimerEvent>
 #include <cmath>
 
@@ -35,6 +36,8 @@ TextRender::TextRender(QQuickItem* parent)
         s_sessions.append(new VTermBridge());
         s_activeSession = 0;
     }
+    for (VTermBridge* session : std::as_const(s_sessions))
+        watchSession(session);
 
     m_terminal = s_sessions[s_activeSession];
     connectTerminal(m_terminal);
@@ -78,6 +81,44 @@ void TextRender::connectTerminal(VTermBridge* t)
 void TextRender::disconnectTerminal(VTermBridge* t)
 {
     disconnect(t, nullptr, this, nullptr);
+}
+
+// Every session is watched, not just the visible one: a shell can exit in a
+// background tab too. The session rather than `this` is the context, so that
+// disconnectTerminal() on a tab switch leaves the watch in place. Queued,
+// because the session is deleted in response and the signal is emitted from
+// deep inside its own PTY read handler.
+void TextRender::watchSession(VTermBridge* t)
+{
+    QPointer<TextRender> self(this);
+    connect(t, &VTermBridge::hangupReceived, t, [self, t] {
+        if (self)
+            self->handleHangup(t);
+    }, Qt::QueuedConnection);
+}
+
+void TextRender::handleHangup(VTermBridge* t)
+{
+    const int index = s_sessions.indexOf(t);
+    if (index < 0)
+        return;
+
+    if (s_sessions.size() > 1) {
+        closeSession(index);
+        return;
+    }
+
+    // There is always at least one tab, so the last one gets a fresh shell.
+    disconnectTerminal(t);
+    t->deleteLater();
+    m_terminal = s_sessions[0] = createSession();
+    connectTerminal(m_terminal);
+
+    m_title = m_terminal->title();
+    emit titleChanged();
+    emit sessionTitlesChanged();
+    redraw();
+    emit lastSessionExited();
 }
 
 // ── Session management ──────────────────────────────────────────────
@@ -127,12 +168,10 @@ void TextRender::setActiveSession(int index)
     redraw();
 }
 
-int TextRender::newSession()
+VTermBridge* TextRender::createSession()
 {
     auto* session = new VTermBridge();
-    s_sessions.append(session);
-
-    int index = s_sessions.size() - 1;
+    watchSession(session);
 
     // Init immediately if we know the terminal size
     if (m_fontWidth > 0 && m_fontHeight > 0) {
@@ -145,6 +184,14 @@ int TextRender::newSession()
                                          : m_terminalEmulator.toUtf8(),
             m_shellProgram);
     }
+    return session;
+}
+
+int TextRender::newSession()
+{
+    s_sessions.append(createSession());
+
+    int index = s_sessions.size() - 1;
 
     emit sessionCountChanged();
     setActiveSession(index);
@@ -156,14 +203,15 @@ void TextRender::closeSession(int index)
     if (index < 0 || index >= s_sessions.size() || s_sessions.size() <= 1)
         return;
 
-    if (index == s_activeSession)
-        disconnectTerminal(s_sessions[index]);
+    disconnectTerminal(m_terminal);
 
-    delete s_sessions[index];
-    s_sessions.removeAt(index);
+    // deleteLater: this can be reached from the session's own hangup signal.
+    s_sessions.takeAt(index)->deleteLater();
 
-    if (s_activeSession >= s_sessions.size())
-        s_activeSession = s_sessions.size() - 1;
+    // Keep the same tab active if one before it closed; if the active tab
+    // itself closed, its right neighbour takes its place (left, if it was last).
+    if (index < s_activeSession || s_activeSession >= s_sessions.size())
+        --s_activeSession;
 
     m_terminal = s_sessions[s_activeSession];
     connectTerminal(m_terminal);

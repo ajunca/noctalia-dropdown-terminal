@@ -116,6 +116,9 @@ signals:
     void terminalEmulatorChanged();
     void filterKeysChanged();
     void hangupReceived();
+    // The shell in the only remaining tab exited. The tab has already been
+    // given a fresh shell by the time this fires.
+    void lastSessionExited();
     void sessionCountChanged();
     void activeSessionChanged();
     void sessionTitlesChanged();
@@ -146,6 +149,10 @@ private:
 
     void connectTerminal(VTermBridge* t);
     void disconnectTerminal(VTermBridge* t);
+
+    VTermBridge* createSession();
+    void watchSession(VTermBridge* t);
+    void handleHangup(VTermBridge* t);
 
     // Coordinate helpers
     QPointF cellToPixel(int col, int row) const;
