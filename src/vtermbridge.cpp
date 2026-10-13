@@ -143,6 +143,9 @@ int VTermBridge::cb_settermprop(VTermProp prop, VTermValue* val, void* user)
     case VTERM_PROP_REVERSE:
         self->m_reverseVideo = val->boolean;
         break;
+    case VTERM_PROP_MOUSE:
+        self->m_mouseMode = val->number;
+        break;
     default:
         break;
     }
@@ -401,6 +404,18 @@ void VTermBridge::setTermSize(QSize size)
 
 // ---------- Keyboard input ----------
 
+static VTermModifier toVTermModifier(int modifiers)
+{
+    VTermModifier mod = VTERM_MOD_NONE;
+    if (modifiers & Qt::ShiftModifier)
+        mod = (VTermModifier)(mod | VTERM_MOD_SHIFT);
+    if (modifiers & Qt::AltModifier)
+        mod = (VTermModifier)(mod | VTERM_MOD_ALT);
+    if (modifiers & Qt::ControlModifier)
+        mod = (VTermModifier)(mod | VTERM_MOD_CTRL);
+    return mod;
+}
+
 void VTermBridge::keyPress(int key, int modifiers, const QString& text)
 {
     if (!m_vt)
@@ -411,13 +426,7 @@ void VTermBridge::keyPress(int key, int modifiers, const QString& text)
         || key == Qt::Key_Meta || key == Qt::Key_Super_L || key == Qt::Key_Super_R)
         return;
 
-    VTermModifier mod = VTERM_MOD_NONE;
-    if (modifiers & Qt::ShiftModifier)
-        mod = (VTermModifier)(mod | VTERM_MOD_SHIFT);
-    if (modifiers & Qt::AltModifier)
-        mod = (VTermModifier)(mod | VTERM_MOD_ALT);
-    if (modifiers & Qt::ControlModifier)
-        mod = (VTermModifier)(mod | VTERM_MOD_CTRL);
+    VTermModifier mod = toVTermModifier(modifiers);
 
     VTermKey vtKey = VTERM_KEY_NONE;
 
@@ -506,6 +515,26 @@ void VTermBridge::putString(QString str)
 {
     if (m_pty)
         m_pty->writeRawTerm(str.toUtf8());
+}
+
+void VTermBridge::wheel(int steps, QPoint cell, int modifiers)
+{
+    if (!m_vt || steps == 0)
+        return;
+
+    const VTermModifier mod = toVTermModifier(modifiers);
+
+    if (mouseTracking()) {
+        // Buttons 4/5 are wheel up/down, encoded in whichever mouse protocol
+        // the app enabled. Wheel buttons have no release.
+        vterm_mouse_move(m_vt, cell.y() - 1, cell.x() - 1, mod);
+        for (int i = 0; i < qAbs(steps); ++i)
+            vterm_mouse_button(m_vt, steps > 0 ? 4 : 5, true, mod);
+    } else {
+        // Like xterm's alternateScroll: send cursor keys (honours DECCKM)
+        for (int i = 0; i < qAbs(steps); ++i)
+            vterm_keyboard_key(m_vt, steps > 0 ? VTERM_KEY_UP : VTERM_KEY_DOWN, mod);
+    }
 }
 
 // ---------- Scrollback navigation ----------

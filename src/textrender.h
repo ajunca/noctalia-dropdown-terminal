@@ -166,6 +166,7 @@ private:
     QPoint m_selectionAnchor;  // absolute buffer coords
     bool m_activeClick = false;
     QPointF m_lastDragPos;
+    int m_wheelRemainder = 0;  // alt-screen wheel delta not yet sent
 
     QString m_title;
     QString m_shellProgram;

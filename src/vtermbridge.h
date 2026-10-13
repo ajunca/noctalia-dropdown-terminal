@@ -95,6 +95,7 @@ public:
     bool isInitialized() const { return m_vt != nullptr; }
     bool inverseVideoMode() const { return m_reverseVideo; }
     bool useAltScreenBuffer() const { return m_altScreen; }
+    bool mouseTracking() const { return m_mouseMode != VTERM_PROP_MOUSE_NONE; }
     QString title() const { return m_title; }
 
     // Scrollback
@@ -108,6 +109,9 @@ public:
     void keyPress(int key, int modifiers, const QString& text = "");
     void paste(const QString& text);
     void putString(QString str);
+    // Wheel for full-screen apps: a mouse report when the app tracks the
+    // mouse, otherwise cursor keys. steps > 0 is up; cell is 1-indexed.
+    void wheel(int steps, QPoint cell, int modifiers);
 
     // Selection (stored in absolute buffer coordinates)
     QString selectedText() const;
@@ -147,6 +151,7 @@ private:
     QSize m_termSize;
     bool m_showCursor = true;
     bool m_altScreen = false;
+    int m_mouseMode = VTERM_PROP_MOUSE_NONE;
     bool m_reverseVideo = false;
     QPoint m_cursorPos = QPoint(1, 1); // 1-indexed
 

@@ -805,6 +805,18 @@ void TextRender::wheelEvent(QWheelEvent* event)
     else
         delta = event->angleDelta().y();
 
+    if (m_terminal->useAltScreenBuffer()) {
+        // No scrollback on the alt screen, so the wheel goes to the app.
+        // Accumulate touchpad pixel deltas so each step is a real notch.
+        m_wheelRemainder += delta;
+        const int steps = m_wheelRemainder / 40;
+        m_wheelRemainder -= steps * 40;
+        m_terminal->wheel(steps, pixelToCell(event->position()), event->modifiers());
+        event->accept();
+        return;
+    }
+    m_wheelRemainder = 0;
+
     int lines = qAbs(delta) / 40;
     if (lines < 1)
         lines = 1;
