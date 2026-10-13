@@ -12,8 +12,12 @@
 #include <QCursor>
 #include <QFontMetricsF>
 #include <QGuiApplication>
+#include <QImage>
 #include <QPainter>
+#include <QQuickWindow>
+#include <QSGImageNode>
 #include <QTimerEvent>
+#include <QtMath>
 #include <cmath>
 
 // Static session storage — survives QML component destruction/recreation
@@ -21,11 +25,11 @@ QVector<VTermBridge*> TextRender::s_sessions;
 int TextRender::s_activeSession = 0;
 
 TextRender::TextRender(QQuickItem* parent)
-    : QQuickPaintedItem(parent)
+    : QQuickItem(parent)
 {
+    setFlag(ItemHasContents);
     setAcceptedMouseButtons(Qt::LeftButton);
     setCursor(QCursor(Qt::IBeamCursor));
-    setFillColor(Qt::transparent);
 
     connect(QGuiApplication::clipboard(), &QClipboard::dataChanged,
             this, &TextRender::clipboardChanged);
@@ -293,14 +297,14 @@ void TextRender::setFont(const QFont& font)
     m_fontAscent = fm.ascent();
 
     emit fontChanged();
-    update();
+    scheduleRepaint();
 }
 
 // ── Lifecycle ───────────────────────────────────────────────────────
 
 void TextRender::componentComplete()
 {
-    QQuickPaintedItem::componentComplete();
+    QQuickItem::componentComplete();
     m_pendingInit = true;
     m_cursorBlinkTimer = startTimer(500);
 }
@@ -556,6 +560,98 @@ void TextRender::paint(QPainter* painter)
     }
 }
 
+// ── Scene graph ─────────────────────────────────────────────────────
+//
+// This used to be a QQuickPaintedItem, which went blurry under fractional
+// scaling. Its texture is sized round(round(width) * dpr) and stretched over an
+// item placed wherever the layout put it, so at a scale of 1.25 a 6px margin
+// lands the texture on a half device pixel, and linear filtering then smears
+// every glyph across two pixels. At integer scales the same layout happens to
+// land on whole pixels, which is why it only shows up at fractional ones.
+//
+// So we own the node and keep it exactly 1:1 with device pixels: the image is
+// painted at the window's device pixel ratio, its on-screen origin is snapped
+// to a whole device pixel (a shift of under half a pixel), and it is sampled
+// with nearest filtering so that nothing is ever interpolated.
+
+void TextRender::scheduleRepaint()
+{
+    m_repaintPending = true;
+    update();
+}
+
+// How far the item's origin sits from a whole device pixel, in device pixels.
+QPointF TextRender::devicePixelPhase() const
+{
+    if (!window())
+        return QPointF();
+    const QPointF origin = mapToScene(QPointF(0, 0))
+                           * window()->effectiveDevicePixelRatio();
+    return origin - QPointF(std::round(origin.x()), std::round(origin.y()));
+}
+
+// Moving an ancestor (the roll-down animation, the panel being re-centred)
+// moves us without ever telling us. Checked once per frame, before the scene
+// graph syncs, so that the node is re-snapped in the frame that moved it.
+void TextRender::checkPixelAlignment()
+{
+    if (devicePixelPhase() != m_nodePhase)
+        update();
+}
+
+void TextRender::itemChange(ItemChange change, const ItemChangeData& value)
+{
+    if (change == ItemSceneChange) {
+        disconnect(m_frameConnection);
+        if (value.window) {
+            m_frameConnection = connect(value.window, &QQuickWindow::afterAnimating,
+                                        this, &TextRender::checkPixelAlignment);
+        }
+        m_repaintPending = true;
+    } else if (change == ItemDevicePixelRatioHasChanged) {
+        scheduleRepaint();
+    }
+    QQuickItem::itemChange(change, value);
+}
+
+QSGNode* TextRender::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData*)
+{
+    auto* node = static_cast<QSGImageNode*>(oldNode);
+
+    const qreal dpr = window()->effectiveDevicePixelRatio();
+    const QSize pixelSize(qCeil(width() * dpr), qCeil(height() * dpr));
+    if (pixelSize.isEmpty()) {
+        delete node;
+        return nullptr;
+    }
+
+    if (!node) {
+        node = window()->createImageNode();
+        node->setOwnsTexture(true);
+        node->setFiltering(QSGTexture::Nearest);
+        m_repaintPending = true;
+    }
+
+    // A pure move only needs the node re-snapped; the contents are unchanged.
+    if (m_repaintPending || node->texture()->textureSize() != pixelSize) {
+        m_repaintPending = false;
+
+        QImage image(pixelSize, QImage::Format_ARGB32_Premultiplied);
+        image.setDevicePixelRatio(dpr);
+        image.fill(Qt::transparent);
+        {
+            QPainter painter(&image);
+            paint(&painter);
+        }
+        node->setTexture(window()->createTextureFromImage(image));
+        node->setSourceRect(QRectF(QPointF(0, 0), pixelSize));
+    }
+
+    m_nodePhase = devicePixelPhase();
+    node->setRect(QRectF(-m_nodePhase / dpr, QSizeF(pixelSize) / dpr));
+    return node;
+}
+
 // ── Redraw / timers ─────────────────────────────────────────────────
 
 void TextRender::setDefaultForeground(const QColor& c)
@@ -566,7 +662,7 @@ void TextRender::setDefaultForeground(const QColor& c)
     for (VTermBridge* session : std::as_const(s_sessions))
         session->setDefaultColors(m_defaultForeground.rgb(), m_defaultBackground.rgb());
     emit defaultColorsChanged();
-    update();
+    scheduleRepaint();
 }
 
 void TextRender::setDefaultBackground(const QColor& c)
@@ -577,7 +673,7 @@ void TextRender::setDefaultBackground(const QColor& c)
     for (VTermBridge* session : std::as_const(s_sessions))
         session->setDefaultColors(m_defaultForeground.rgb(), m_defaultBackground.rgb());
     emit defaultColorsChanged();
-    update();
+    scheduleRepaint();
 }
 
 void TextRender::redraw()
@@ -590,7 +686,7 @@ void TextRender::redraw()
     if (m_dispatchTimer)
         return;
 
-    update();
+    scheduleRepaint();
 
     // Throttle: wait 3ms before allowing another repaint
     m_dispatchTimer = startTimer(3);
@@ -603,10 +699,10 @@ void TextRender::timerEvent(QTimerEvent* event)
     if (id == m_dispatchTimer) {
         killTimer(m_dispatchTimer);
         m_dispatchTimer = 0;
-        update();
+        scheduleRepaint();
     } else if (id == m_cursorBlinkTimer) {
         m_cursorVisible = !m_cursorVisible;
-        update();
+        scheduleRepaint();
     } else if (id == m_autoScrollTimer) {
         if (m_autoScrollDirection < 0)
             m_terminal->scrollBackBufferBack(1);
@@ -634,7 +730,7 @@ void TextRender::timerEvent(QTimerEvent* event)
 
 void TextRender::geometryChange(const QRectF& newGeo, const QRectF& oldGeo)
 {
-    QQuickPaintedItem::geometryChange(newGeo, oldGeo);
+    QQuickItem::geometryChange(newGeo, oldGeo);
 
     if (newGeo.size() == oldGeo.size())
         return;
@@ -658,7 +754,7 @@ void TextRender::geometryChange(const QRectF& newGeo, const QRectF& oldGeo)
         m_resizeTimer = startTimer(150);
     }
 
-    update();
+    scheduleRepaint();
 }
 
 // ── Scroll back handler ─────────────────────────────────────────────

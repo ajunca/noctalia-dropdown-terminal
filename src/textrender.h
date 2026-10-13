@@ -9,12 +9,12 @@
 #define TEXTRENDER_H
 
 #include <QColor>
-#include <QQuickPaintedItem>
+#include <QQuickItem>
 #include <QtQml/qqmlregistration.h>
 
 #include "vtermbridge.h"
 
-class TextRender : public QQuickPaintedItem
+class TextRender : public QQuickItem
 {
     QML_ELEMENT
 
@@ -44,7 +44,7 @@ public:
     explicit TextRender(QQuickItem* parent = nullptr);
     ~TextRender() override;
 
-    void paint(QPainter* painter) override;
+    void paint(QPainter* painter);
 
     // Clipboard
     bool canPaste() const;
@@ -125,6 +125,8 @@ public slots:
     void redraw();
 
 protected:
+    QSGNode* updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData* data) override;
+    void itemChange(ItemChange change, const ItemChangeData& value) override;
     void geometryChange(const QRectF& newGeo, const QRectF& oldGeo) override;
     void mousePressEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
@@ -143,6 +145,14 @@ private:
 
     void initTerminal();
     bool m_pendingInit = false;
+
+    // Rendering — see updatePaintNode()
+    void scheduleRepaint();
+    QPointF devicePixelPhase() const;
+    void checkPixelAlignment();
+    bool m_repaintPending = true;
+    QPointF m_nodePhase;
+    QMetaObject::Connection m_frameConnection;
 
     void connectTerminal(VTermBridge* t);
     void disconnectTerminal(VTermBridge* t);
